@@ -23,11 +23,10 @@ export async function GET(req: Request) {
         grant_type: "authorization_code",
       }),
     });
-    
+
     const tokenData = await tokenRes.json();
     const access_token = tokenData.access_token;
 
-    // Если токена нет — выводим ответ Google в консоль и показываем ошибку
     if (!access_token) {
       console.error("GOOGLE TOKEN ERROR:", tokenData);
       return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/login?error=no_access_token`);
@@ -39,25 +38,21 @@ export async function GET(req: Request) {
     });
     const googleUser = await userRes.json();
 
-    // 3. Защита: если Google не вернул email или id
     if (!googleUser?.email || !googleUser?.id) {
       console.error("GOOGLE USER MISSING DATA:", googleUser);
       return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/login?error=google_no_email`);
     }
 
-    // 4. Ищем пользователя по googleId, затем по email
+    // 3. Ищем или создаём пользователя
     let [user] = await db.select().from(profiles).where(eq(profiles.googleId, googleUser.id)).limit(1);
 
     if (!user) {
       [user] = await db.select().from(profiles).where(eq(profiles.email, googleUser.email)).limit(1);
       if (user) {
-        // Привязываем Google ID к существующему аккаунту
         await db.update(profiles).set({ googleId: googleUser.id }).where(eq(profiles.id, user.id));
       } else {
-        // Создаём нового пользователя
         const baseUsername = googleUser.email.split("@")[0].replace(/[^a-z0-9_.]/g, "") || "user";
         const username = `${baseUsername}${Math.floor(Math.random() * 10000)}`;
-        
         [user] = await db.insert(profiles).values({
           username,
           displayName: googleUser.name || googleUser.email,
@@ -68,10 +63,34 @@ export async function GET(req: Request) {
       }
     }
 
-    // 5. Создаём сессию и редиректим на главную
+    // 4. Создаём сессию
     const token = await createSession(user.id, req);
-    const res = NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/home?auth=success`);
-    res.headers.set("Set-Cookie", cookieHeader(token, 30 * 24 * 60 * 60));
+
+    // 5. Возвращаем HTML-страницу, которая установит куки и перекинет на /home
+    // (обычный redirect иногда не успевает установить куки в браузере)
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Вход...</title>
+          <meta http-equiv="refresh" content="0; url=${process.env.NEXT_PUBLIC_APP_URL}/home?auth=success" />
+        </head>
+        <body>
+          <p>Входим... <a href="${process.env.NEXT_PUBLIC_APP_URL}/home?auth=success">Нажмите, если не перенаправило</a></p>
+          <script>window.location.href = "${process.env.NEXT_PUBLIC_APP_URL}/home?auth=success";</script>
+        </body>
+      </html>
+    `;
+
+    const res = new NextResponse(html, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Set-Cookie": cookieHeader(token, 30 * 24 * 60 * 60),
+      },
+    });
+
     return res;
 
   } catch (error) {
