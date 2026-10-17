@@ -1,0 +1,223 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ */
+/* UZON design tokens                                                  */
+/* ------------------------------------------------------------------ */
+
+:root {
+  color-scheme: dark;
+  --canvas: #10121b;
+  --surface: #191c28;
+  --surface-2: #21263a;
+  --line: #2a2f42;
+  --ink: #f5f6fc;
+  --muted: #9aa0b8;
+  --brand: #7665f8;
+  --brand-strong: #5b48e8;
+  --brand-soft: rgba(118, 101, 248, 0.16);
+  --accent: #4f7cff;
+  --uz-blue: #0099b5;
+  --uz-green: #1eb53a;
+  --danger: #f2555a;
+  --success: #29c46f;
+  --warning: #f5a623;
+  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-lg: 22px;
+  --shadow: 0 18px 40px -24px rgba(0, 0, 0, 0.75);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --canvas: #f4f5fa;
+  --surface: #ffffff;
+  --surface-2: #eef0f8;
+  --line: #e0e3ef;
+  --ink: #14172306;
+  --ink: #141723;
+  --muted: #5c6278;
+  --brand: #6a58f5;
+  --brand-strong: #5240dd;
+  --brand-soft: rgba(106, 88, 245, 0.12);
+  --shadow: 0 18px 38px -26px rgba(20, 23, 35, 0.4);
+}
+
+@media (prefers-color-scheme: light) {
+  html[data-theme="system"] {
+    color-scheme: light;
+    --canvas: #f4f5fa;
+    --surface: #ffffff;
+    --surface-2: #eef0f8;
+    --line: #e0e3ef;
+    --ink: #141723;
+    --muted: #5c6278;
+    --brand: #6a58f5;
+    --brand-strong: #5240dd;
+    --brand-soft: rgba(106, 88, 245, 0.12);
+    --shadow: 0 18px 38px -26px rgba(20, 23, 35, 0.4);
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface-2);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brandstrong: var(--brand-strong);
+  --color-brandsoft: var(--brand-soft);
+  --color-accent: var(--accent);
+  --color-uzblue: var(--uz-blue);
+  --color-uzgreen: var(--uz-green);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius-lg);
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  border-color: var(--line);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+::selection {
+  background: var(--brand-soft);
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Scrollbars tuned per theme */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Uzbek-ornament inspired brand surface */
+.uz-ornament {
+  background-image:
+    radial-gradient(circle at 20% 20%, rgba(118, 101, 248, 0.22), transparent 45%),
+    radial-gradient(circle at 80% 0%, rgba(0, 153, 181, 0.2), transparent 40%),
+    radial-gradient(circle at 60% 90%, rgba(30, 181, 58, 0.12), transparent 45%);
+}
+
+.uz-pattern {
+  background-image:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.04) 0 2px, transparent 2px 10px),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.03) 0 2px, transparent 2px 10px);
+}
+
+.glass {
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+@keyframes uz-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-fade-up {
+  animation: uz-fade-up 0.24s ease-out both;
+}
+
+@keyframes uz-pop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.animate-pop {
+  animation: uz-pop 0.2s ease-out both;
+}
+
+@keyframes uz-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  animation: uz-shimmer 1.4s infinite;
+}
+
+.clip-snap {
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+.clip-snap > * {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+video {
+  background: #000;
+}
