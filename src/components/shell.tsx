@@ -75,12 +75,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   };
 
+  // ИСПРАВЛЕНИЕ: ждём refreshUser(), затем перекидываем на /home
   useEffect(() => {
     if (searchParams.get("auth") === "success") {
-      void refreshUser();
-      router.replace(pathname);
+      void refreshUser().then(() => {
+        router.replace("/home");
+      });
     }
-  }, [searchParams, refreshUser, pathname, router]);
+  }, [searchParams, refreshUser, router]);
 
   // Публичные страницы (можно смотреть без входа)
   const publicPaths = ["/", "/home", "/clips", "/videos", "/search", "/u/", "/c/", "/post/"];
