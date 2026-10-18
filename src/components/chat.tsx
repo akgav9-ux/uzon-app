@@ -546,7 +546,6 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       setRecordingVideo(true);
       setVideoSeconds(0);
 
-      // Дожидаемся, что <video> уже в DOM
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
       if (videoPreviewRef.current) {
@@ -626,7 +625,6 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     videoRecorderRef.current = null;
     if (!mr || mr.state === "inactive") return;
 
-    // Явно ждём финальный чанк, иначе blob будет пустой / чёрный
     const finalChunk = new Promise<void>((resolve) => {
       mr.addEventListener(
         "dataavailable",
@@ -636,7 +634,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         },
         { once: true },
       );
-      setTimeout(resolve, 400); // страховка
+      setTimeout(resolve, 400);
     });
 
     try {
@@ -731,27 +729,33 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
           {requestingMic && <p className="px-2 pb-1 text-[11px] text-muted">Запрос доступа к микрофону…</p>}
           {requestingCam && <p className="px-2 pb-1 text-[11px] text-muted">Запрос доступа к камере…</p>}
 
-          {/* Маленькое превью камеры при записи видео */}
+          {/* Круглое превью камеры при записи видео (video note) */}
           {recordingVideo && (
             <div className="mb-2 flex justify-center">
-              <div className="relative w-40 overflow-hidden rounded-2xl bg-black shadow-lg ring-1 ring-white/10">
-                <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-md">
+              <div className="relative h-56 w-56">
+                <div className="h-full w-full overflow-hidden rounded-full bg-black shadow-lg ring-4 ring-danger/60">
+                  <video
+                    ref={videoPreviewRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className="h-full w-full object-cover"
+                    style={{ transform: "scaleX(-1)" }}
+                  />
+                </div>
+
+                <div className="absolute left-1/2 top-2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-red-500/90 px-2.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-md">
                   <span className="relative flex h-1.5 w-1.5">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
                     <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
                   </span>
                   {videoSeconds}s
                 </div>
-                <video
-                  ref={videoPreviewRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="h-52 w-40 object-cover"
-                  style={{ transform: "scaleX(-1)" }}
-                />
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1.5">
-                  <p className="text-center text-[10px] font-medium text-white/85">Отпусти — отправится</p>
+
+                <div className="absolute inset-x-0 bottom-3 z-10 flex justify-center">
+                  <span className="rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-medium text-white backdrop-blur-sm">
+                    Отпусти — отправится
+                  </span>
                 </div>
               </div>
             </div>
@@ -1007,7 +1011,7 @@ function MessageBubble({
               // eslint-disable-next-line @next/next/no-img-element
               <img src={message.media.url} alt="" className="mt-1 max-h-72 w-full rounded-xl object-cover" loading="lazy" />
             ) : message.media.kind === "video" ? (
-              <video src={message.media.url} controls playsInline className="mt-1 w-[240px] max-w-full rounded-xl bg-black" />
+              <VideoNote src={message.media.url} />
             ) : message.media.kind === "audio" ? (
               <AudioPlayer src={message.media.url} />
             ) : (
@@ -1155,6 +1159,115 @@ function AudioPlayer({ src }: { src: string }) {
       <div className="relative h-1 flex-1 rounded-full bg-white/20">
         <div className="absolute inset-y-0 left-0 rounded-full bg-white" style={{ width: `${progress}%` }} />
       </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                VIDEO NOTE                                  */
+/* -------------------------------------------------------------------------- */
+
+function VideoNote({ src }: { src: string }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [current, setCurrent] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const togglePlay = () => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (isPlaying) {
+      el.pause();
+      setIsPlaying(false);
+    } else {
+      el.play().catch(() => {});
+      setIsPlaying(true);
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    const el = videoRef.current;
+    if (!el) return;
+    setCurrent(el.currentTime);
+    if (el.duration && isFinite(el.duration) && el.duration > 0) {
+      setProgress((el.currentTime / el.duration) * 100);
+    }
+  };
+
+  const handleEnded = () => {
+    setIsPlaying(false);
+    setProgress(0);
+    setCurrent(0);
+    if (videoRef.current) videoRef.current.currentTime = 0;
+  };
+
+  const handleLoadedMetadata = () => {
+    const el = videoRef.current;
+    if (el && isFinite(el.duration)) setDuration(el.duration);
+  };
+
+  const fmtSec = (s: number) => {
+    if (!isFinite(s) || s <= 0) return "0:00";
+    const m = Math.floor(s / 60);
+    const r = Math.floor(s % 60);
+    return `${m}:${String(r).padStart(2, "0")}`;
+  };
+
+  return (
+    <div className="relative mt-1 h-56 w-56 max-w-full select-none">
+      <div
+        className="relative h-full w-full cursor-pointer overflow-hidden rounded-full bg-black"
+        onClick={togglePlay}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            togglePlay();
+          }
+        }}
+        aria-label={isPlaying ? "Pause video" : "Play video"}
+      >
+        <video
+          ref={videoRef}
+          src={src}
+          playsInline
+          preload="metadata"
+          onTimeUpdate={handleTimeUpdate}
+          onEnded={handleEnded}
+          onLoadedMetadata={handleLoadedMetadata}
+          className="h-full w-full object-cover"
+        />
+
+        {!isPlaying && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-[1px]">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-black shadow-lg">
+              <svg viewBox="0 0 24 24" className="ml-0.5 h-5 w-5" fill="currentColor">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </div>
+          </div>
+        )}
+
+        {isPlaying && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition hover:opacity-100">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 text-white">
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+                <path d="M6 4h4v16H6zm8 0h4v16h-4z" />
+              </svg>
+            </div>
+          </div>
+        )}
+
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1.5 bg-black/30">
+          <div className="h-full bg-white/80 transition-[width] duration-150" style={{ width: `${progress}%` }} />
+        </div>
+      </div>
+
+      <span className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+        {isPlaying ? fmtSec(current) : fmtSec(duration)}
+      </span>
     </div>
   );
 }
