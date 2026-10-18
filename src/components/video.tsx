@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Check, Expand, Heart, Maximize2, MessageCircle, Pause, Play, Volume2, VolumeX } from "lucide-react";
+import { Bookmark, Check, Expand, Heart, Maximize2, MessageCircle, Pause, Play, Trash2, Volume2, VolumeX, MoreHorizontal } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "@/components/providers";
-import { Avatar, Badge, Button, ErrorState, IconButton, Skeleton } from "@/components/ui";
-import { get, post as postApi, qk } from "@/lib/client/api";
+import { Avatar, Badge, Button, ErrorState, IconButton, Menu, MenuItem, Skeleton } from "@/components/ui";
+import { del, get, post as postApi, qk } from "@/lib/client/api";
 import type { VideoPayload } from "@/lib/serialize";
 import { cn } from "@/lib/utils";
 
@@ -21,56 +21,82 @@ export function VideoCardSkeleton() {
 }
 
 export function VideoCard({ video, layout = "grid" }: { video: VideoPayload; layout?: "grid" | "row" }) {
-  const { t, fmt } = useApp();
+  const { t, fmt, user, toast } = useApp();
+  const queryClient = useQueryClient();
   const href = video.kind === "clip" ? "/clips" : `/videos/${video.id}`;
+
+  const deleteMutation = useMutation({
+    mutationFn: () => del(`/api/videos/${video.id}`),
+    onSuccess: () => {
+      toast(t("video.deleted"), "success");
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
+      queryClient.invalidateQueries({ queryKey: ["feed"] });
+    },
+    onError: (error: Error) => toast(error.message, "error"),
+  });
+
   return (
-    <Link
-      href={href}
-      className={cn("group block", layout === "row" && "flex gap-3")}
-    >
-      <div className={cn("relative overflow-hidden rounded-xl bg-black", layout === "row" ? "w-40 shrink-0" : "aspect-video w-full")}>
-        {video.posterUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={video.posterUrl} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:scale-[1.02]" />
-        ) : video.url ? (
-          <video src={video.url} muted playsInline preload="metadata" className="h-full w-full object-cover" />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center bg-surface2 text-muted">
-            <Play className="h-6 w-6" />
-          </div>
-        )}
-        {video.durationMs ? (
-          <span className="absolute bottom-1.5 right-1.5 rounded bg-black/80 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-            {fmt.duration(video.durationMs)}
-          </span>
-        ) : null}
-        {video.status !== "ready" && (
-          <span className="absolute left-1.5 top-1.5">
-            <Badge tone="warning">{t("video.processing")}</Badge>
-          </span>
-        )}
-        {video.positionMs > 3000 && (
-          <span className="absolute inset-x-0 bottom-0 h-1 bg-white/25">
-            <span className="block h-full bg-brand" style={{ width: `${Math.min(100, (video.positionMs / Math.max(1, video.durationMs ?? 1)) * 100)}%` }} />
-          </span>
-        )}
-      </div>
-      <div className={cn("mt-2 flex gap-2.5", layout === "row" && "mt-0 min-w-0 flex-1")}>
-        {layout === "row" && <Avatar name={video.owner.displayName} url={video.owner.avatarUrl} size={32} className="mt-0.5" />}
-        <div className="min-w-0 flex-1">
-          <h3 className={cn("line-clamp-2 text-sm font-semibold text-ink group-hover:text-brand", layout === "row" && "text-xs")}>{video.title}</h3>
-          {layout === "grid" && (
-            <p className="mt-1 truncate text-xs text-muted">
-              {video.owner.displayName} <span className="opacity-60">@{video.owner.username}</span>
-            </p>
+    <div className="group relative">
+      <Link href={href} className={cn("block", layout === "row" && "flex gap-3")}>
+        <div className={cn("relative overflow-hidden rounded-xl bg-black", layout === "row" ? "w-40 shrink-0" : "aspect-video w-full")}>
+          {video.posterUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={video.posterUrl} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:scale-[1.02]" />
+          ) : video.url ? (
+            <video src={video.url} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center bg-surface2 text-muted">
+              <Play className="h-6 w-6" />
+            </div>
           )}
-          <p className="mt-0.5 truncate text-[11px] text-muted">
-            {fmt.number(video.viewCount)} {t("video.views")} · {fmt.relative(video.createdAt)}
-            {video.commentCount > 0 && ` · ${fmt.number(video.commentCount)} ${t("studio.comments").toLowerCase()}`}
-          </p>
+          {video.durationMs ? (
+            <span className="absolute bottom-1.5 right-1.5 rounded bg-black/80 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+              {fmt.duration(video.durationMs)}
+            </span>
+          ) : null}
+          {video.status !== "ready" && (
+            <span className="absolute left-1.5 top-1.5">
+              <Badge tone="warning">{t("video.processing")}</Badge>
+            </span>
+          )}
+          {video.positionMs > 3000 && (
+            <span className="absolute inset-x-0 bottom-0 h-1 bg-white/25">
+              <span className="block h-full bg-brand" style={{ width: `${Math.min(100, (video.positionMs / Math.max(1, video.durationMs ?? 1)) * 100)}%` }} />
+            </span>
+          )}
         </div>
-      </div>
-    </Link>
+        <div className={cn("mt-2 flex gap-2.5", layout === "row" && "mt-0 min-w-0 flex-1")}>
+          {layout === "row" && <Avatar name={video.owner.displayName} url={video.owner.avatarUrl} size={32} className="mt-0.5" />}
+          <div className="min-w-0 flex-1">
+            <h3 className={cn("line-clamp-2 text-sm font-semibold text-ink group-hover:text-brand", layout === "row" && "text-xs")}>{video.title}</h3>
+            {layout === "grid" && (
+              <p className="mt-1 truncate text-xs text-muted">
+                {video.owner.displayName} <span className="opacity-60">@{video.owner.username}</span>
+              </p>
+            )}
+            <p className="mt-0.5 truncate text-[11px] text-muted">
+              {fmt.number(video.viewCount)} {t("video.views")} · {fmt.relative(video.createdAt)}
+              {video.commentCount > 0 && ` · ${fmt.number(video.commentCount)} ${t("studio.comments").toLowerCase()}`}
+            </p>
+          </div>
+        </div>
+      </Link>
+      {video.isMine && (
+        <div className="absolute right-1 top-1 opacity-0 transition group-hover:opacity-100">
+          <Menu
+            trigger={({ toggle }) => (
+              <IconButton label={t("common.edit")} onClick={toggle} className="bg-black/50 text-white hover:bg-black/70">
+                <MoreHorizontal className="h-4 w-4" />
+              </IconButton>
+            )}
+          >
+            <MenuItem icon={<Trash2 className="h-3.5 w-3.5" />} tone="danger" onClick={() => deleteMutation.mutate()}>
+              {t("common.delete")}
+            </MenuItem>
+          </Menu>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -168,6 +194,16 @@ export function VideoPlayer({
     onError: (error: Error) => toast(error.message, "error"),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () => del(`/api/videos/${video.id}`),
+    onSuccess: () => {
+      toast(t("video.deleted"), "success");
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
+      queryClient.invalidateQueries({ queryKey: ["feed"] });
+    },
+    onError: (error: Error) => toast(error.message, "error"),
+  });
+
   const [likeState, setLikeState] = useState({ liked: video.likedByViewer, count: video.likeCount });
   useEffect(() => setLikeState({ liked: video.likedByViewer, count: video.likeCount }), [video.likedByViewer, video.likeCount]);
 
@@ -229,6 +265,21 @@ export function VideoPlayer({
               <Play className="h-7 w-7" />
             </span>
           </button>
+        )}
+        {video.isMine && (
+          <div className="absolute right-2 top-2 z-10">
+            <Menu
+              trigger={({ toggle }) => (
+                <IconButton label={t("common.edit")} onClick={toggle} className="bg-black/50 text-white hover:bg-black/70">
+                  <MoreHorizontal className="h-4 w-4" />
+                </IconButton>
+              )}
+            >
+              <MenuItem icon={<Trash2 className="h-3.5 w-3.5" />} tone="danger" onClick={() => deleteMutation.mutate()}>
+                {t("common.delete")}
+              </MenuItem>
+            </Menu>
+          </div>
         )}
       </div>
 
