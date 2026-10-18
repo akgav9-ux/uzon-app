@@ -671,46 +671,45 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const canPost = conversation.kind !== "channel" || conversation.myRole === "owner" || conversation.myRole === "admin" || !conversation.onlyAdminsCanPost;
 
   return (
-    // Делаем тёмный фон чата и убираем белые обводки (стиль Telegram)
-    <div className="flex h-[calc(100dvh-13rem)] flex-col overflow-hidden bg-[#1c242d] md:h-[calc(100dvh-7.5rem)]">
+    // УБРАЛИ БЕЛОЕ ОКНО, ТЕПЕРЬ ЧАТ НА ВЕСЬ ЭКРАН
+    <div className="flex h-[calc(100dvh-11rem)] flex-col bg-background md:h-[calc(100dvh-7.5rem)]">
       
-      {/* Шапка (Header) как в Telegram */}
-      <header className="flex items-center gap-3 bg-[#212d3b] px-3 py-2 shadow-sm shrink-0">
+      <header className="flex items-center gap-2 border-b border-line px-3 py-2.5 shrink-0 bg-surface">
         {onBack && (
-          <button onClick={onBack} className="text-white/80 hover:text-white shrink-0">
-            <ArrowLeft className="h-6 w-6" />
-          </button>
+          <IconButton label={t("common.back")} onClick={onBack}>
+            <ArrowLeft className="h-4 w-4" />
+          </IconButton>
         )}
-        <Avatar name={conversation.title ?? "UZON"} url={conversation.avatarUrl} size={40} />
+        <Avatar name={conversation.title ?? "UZON"} url={conversation.avatarUrl} size={38} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-white">{conversation.title ?? t("chat.direct")}</p>
-          <p className="truncate text-[11px] text-white/60">
-            {conversation.kind === "direct" ? "был(а) недавно" : `${conversation.membersCount} ${t("chat.members").toLowerCase()}`}
+          <p className="truncate text-sm font-semibold text-ink">{conversation.title ?? t("chat.direct")}</p>
+          <p className="truncate text-[11px] text-muted">
+            {conversation.kind === "direct" ? conversation.peer?.username ?? "" : `${conversation.membersCount} ${t("chat.members").toLowerCase()}`}
+            {conversation.kind === "channel" && ` · ${t("chat.channel")}`}
           </p>
         </div>
         {conversation.kind === "direct" && conversation.peer && (
           <>
-            <button className="text-white/80 hover:text-white p-2" onClick={() => call.mutate("audio")}>
-              <Phone className="h-5 w-5" />
-            </button>
-            <button className="text-white/80 hover:text-white p-2" onClick={() => call.mutate("video")}>
-              <VideoIcon className="h-5 w-5" />
-            </button>
+            <IconButton label={t("call.audio")} onClick={() => call.mutate("audio")}>
+              <Phone className="h-4 w-4" />
+            </IconButton>
+            <IconButton label={t("call.video")} onClick={() => call.mutate("video")}>
+              <VideoIcon className="h-4 w-4" />
+            </IconButton>
           </>
         )}
-        <button className="text-white/80 hover:text-white p-2" onClick={() => setInfoOpen(true)}>
-          <MoreHorizontal className="h-5 w-5" />
-        </button>
+        <IconButton label={t("chat.info")} onClick={() => setInfoOpen(true)}>
+          <Info className="h-4 w-4" />
+        </IconButton>
       </header>
 
       {pinned && (
-        <div className="flex items-center gap-2 border-b border-white/10 bg-[#212d3b] px-3 py-1.5 text-[11px] text-brand">
+        <div className="flex items-center gap-2 border-b border-line bg-brandsoft px-3 py-1.5 text-[11px] text-brand shrink-0">
           <Pin className="h-3 w-3" />
           <span className="truncate">{pinned.text ?? t("chat.pin")}</span>
         </div>
       )}
 
-      {/* Контейнер сообщений (тёмный фон) */}
       <div ref={messagesContainerRef} className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
         {messages.length === 0 && <EmptyState title={t("chat.empty")} description={t("chat.write")} />}
         {messages.map((message) => (
@@ -730,22 +729,21 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       </div>
 
       {replyTo && (
-        <div className="flex items-center gap-2 border-t border-white/10 bg-[#212d3b] px-3 py-2 text-xs">
+        <div className="flex items-center gap-2 border-t border-line bg-surface2 px-3 py-2 text-xs shrink-0">
           <ArrowLeft className="h-3.5 w-3.5 rotate-180 text-brand" />
-          <span className="min-w-0 flex-1 truncate text-white/60">{replyTo.text ?? replyTo.media?.kind}</span>
+          <span className="min-w-0 flex-1 truncate text-muted">{replyTo.text ?? replyTo.media?.kind}</span>
           <IconButton label={t("common.cancel")} onClick={() => setReplyTo(null)}>
-            <X className="h-3.5 w-3.5 text-white/60 hover:text-white" />
+            <X className="h-3.5 w-3.5" />
           </IconButton>
         </div>
       )}
 
       {canPost ? (
-        <footer className="safe-bottom border-t border-white/10 bg-[#212d3b] px-2 py-2 shrink-0">
-          {uploading && <p className="px-2 pb-1 text-[11px] text-white/50">{t("create.uploading", { percent: "" })}</p>}
-          {requestingMic && <p className="px-2 pb-1 text-[11px] text-white/50">Запрос доступа к микрофону…</p>}
-          {requestingCam && <p className="px-2 pb-1 text-[11px] text-white/50">Запрос доступа к камере…</p>}
+        <footer className="safe-bottom border-t border-line bg-surface px-2 py-2 shrink-0">
+          {uploading && <p className="px-2 pb-1 text-[11px] text-muted">{t("create.uploading", { percent: "" })}</p>}
+          {requestingMic && <p className="px-2 pb-1 text-[11px] text-muted">Запрос доступа к микрофону…</p>}
+          {requestingCam && <p className="px-2 pb-1 text-[11px] text-muted">Запрос доступа к камере…</p>}
 
-          {/* Круглое превью камеры при записи видео (video note) */}
           {recordingVideo && (
             <div className="mb-2 flex justify-center">
               <div className="relative h-56 w-56">
@@ -775,7 +773,6 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
             </div>
           )}
 
-          {/* Индикатор записи аудио */}
           {recording && (
             <div className="mb-2 flex items-center gap-3 rounded-2xl border border-danger/30 bg-danger/5 px-3 py-2">
               <span className="relative flex h-2 w-2 shrink-0">
@@ -797,7 +794,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                   />
                 ))}
               </div>
-              <span className="shrink-0 text-[10px] text-white/50">Отпусти — отправится</span>
+              <span className="shrink-0 text-[10px] text-muted">Отпусти — отправится</span>
             </div>
           )}
 
@@ -837,7 +834,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
               }}
             />
 
-            <IconButton label={t("common.upload")} onClick={() => fileRef.current?.click()} type="button" className="mb-1 text-white/60 hover:text-white">
+            <IconButton label={t("common.upload")} onClick={() => fileRef.current?.click()} type="button" className="mb-1">
               <Paperclip className="h-5 w-5" />
             </IconButton>
 
@@ -854,10 +851,10 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                 }}
                 placeholder={recording ? t("chat.recording", { seconds: recordSeconds }) : recordingVideo ? "Идёт запись видео…" : t("chat.write")}
                 aria-label={t("chat.write")}
-                className="max-h-28 min-h-[44px] resize-none rounded-[22px] border-0 bg-[#2b3847] px-4 py-2.5 text-sm text-white placeholder-white/40 focus:ring-2 focus:ring-brand/50"
+                className="max-h-28 min-h-[44px] resize-none rounded-[22px] border-0 bg-surface2 px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand/50"
               />
               {emojiOpen && (
-                <div className="absolute bottom-full left-0 z-20 mb-2 grid w-64 grid-cols-6 gap-1 rounded-xl border border-white/10 bg-[#212d3b] p-2 shadow-xl">
+                <div className="absolute bottom-full left-0 z-20 mb-2 grid w-64 grid-cols-6 gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl">
                   {EMOJI.map((emoji) => (
                     <button
                       key={emoji}
@@ -866,7 +863,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                         setText((prev) => prev + emoji);
                         setEmojiOpen(false);
                       }}
-                      className="rounded p-1 text-lg hover:bg-white/10"
+                      className="rounded p-1 text-lg hover:bg-surface2"
                     >
                       {emoji}
                     </button>
@@ -886,7 +883,6 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                 />
               ) : (
                 <>
-                  {/* ВИДЕО — hold-to-record */}
                   <button
                     type="button"
                     aria-label="Удерживай, чтобы записать видео"
@@ -905,16 +901,15 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                     }}
                     disabled={requestingCam}
                     className={cn(
-                      "flex h-11 w-11 touch-none select-none items-center justify-center rounded-full transition-all text-white/60",
+                      "flex h-11 w-11 touch-none select-none items-center justify-center rounded-full transition-all",
                       requestingCam && "cursor-wait opacity-60",
-                      recordingVideo ? "scale-110 bg-danger text-white" : "hover:bg-white/10 hover:text-white",
+                      recordingVideo ? "scale-110 bg-danger text-white" : "text-muted hover:bg-surface2 hover:text-ink",
                     )}
                     style={{ touchAction: "none" }}
                   >
                     <VideoIcon className="h-5 w-5" />
                   </button>
 
-                  {/* АУДИО — hold-to-record */}
                   <button
                     type="button"
                     aria-label="Удерживай, чтобы записать голосовое"
@@ -931,9 +926,9 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                     onPointerCancel={() => stopRecording(true)}
                     disabled={requestingMic}
                     className={cn(
-                      "flex h-11 w-11 touch-none select-none items-center justify-center rounded-full transition-all text-white/60",
+                      "flex h-11 w-11 touch-none select-none items-center justify-center rounded-full transition-all",
                       requestingMic && "cursor-wait opacity-60",
-                      recording ? "animate-pulse bg-danger text-white" : "hover:bg-white/10 hover:text-white",
+                      recording ? "animate-pulse bg-danger text-white" : "text-muted hover:bg-surface2 hover:text-ink",
                     )}
                     style={{ touchAction: "none" }}
                   >
@@ -945,7 +940,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
           </form>
         </footer>
       ) : (
-        <footer className="border-t border-white/10 px-3 py-3 text-center text-xs text-white/50">{t("chat.noPermission")}</footer>
+        <footer className="border-t border-line px-3 py-3 text-center text-xs text-muted">{t("chat.noPermission")}</footer>
       )}
 
       {infoOpen && (
@@ -957,7 +952,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         />
       )}
       {reportTarget && <ReportModal open onClose={() => setReportTarget(null)} entityType="message" entityId={reportTarget.id} />}
-      {call.isPending && <p className="px-3 py-1 text-xs text-white/50">{t("call.connecting")}</p>}
+      {call.isPending && <p className="px-3 py-1 text-xs text-muted">{t("call.connecting")}</p>}
     </div>
   );
 }
@@ -1007,7 +1002,7 @@ function MessageBubble({
           </Link>
         )}
         
-        {/* Убираем белый пузырь для видео-кружков */}
+        {/* Убрали фон/пузырь для видео-кружков. Теперь они висят просто на фоне чата. */}
         <div
           className={cn(
             "relative text-sm",
@@ -1015,12 +1010,12 @@ function MessageBubble({
               ? "p-0"
               : cn(
                   "rounded-2xl px-3 py-2",
-                  message.isMine ? "bg-brand text-white rounded-br-sm" : "bg-[#212d3b] text-white rounded-bl-sm border border-white/5",
+                  message.isMine ? "bg-brand text-white rounded-br-sm" : "border border-line bg-surface2 text-ink rounded-bl-sm",
                 ),
           )}
         >
           {message.replyTo && (
-            <p className={cn("mb-1 border-l-2 pl-2 text-[11px]", message.isMine ? "border-white/50 text-white/75" : "border-brand text-white/60")}>
+            <p className={cn("mb-1 border-l-2 pl-2 text-[11px]", message.isMine ? "border-white/50 text-white/75" : "border-brand text-muted")}>
               {message.replyTo.senderName}: {message.replyTo.text ?? t("common.upload")}
             </p>
           )}
@@ -1049,7 +1044,7 @@ function MessageBubble({
           </div>
 
           {showReactions && (
-            <div className={cn("absolute -top-9 z-10 flex gap-0.5 rounded-full border border-white/10 bg-[#212d3b] px-1.5 py-1 shadow-lg", message.isMine ? "right-0" : "left-0")}>
+            <div className={cn("absolute -top-9 z-10 flex gap-0.5 rounded-full border border-line bg-surface px-1.5 py-1 shadow-lg", message.isMine ? "right-0" : "left-0")}>
               {REACTIONS.map((emoji) => (
                 <button
                   key={emoji}
@@ -1057,7 +1052,7 @@ function MessageBubble({
                     onReact(emoji);
                     setShowReactions(false);
                   }}
-                  className="rounded-full px-1 text-sm hover:bg-white/10"
+                  className="rounded-full px-1 text-sm hover:bg-surface2"
                   aria-label={emoji}
                 >
                   {emoji}
@@ -1070,7 +1065,7 @@ function MessageBubble({
         {message.reactions.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
             {message.reactions.map((reaction) => (
-              <span key={reaction.emoji} className="rounded-full border border-white/10 bg-[#212d3b] px-1.5 text-[10px] text-white">
+              <span key={reaction.emoji} className="rounded-full border border-line bg-surface px-1.5 text-[10px]">
                 {reaction.emoji} {reaction.userIds.length}
               </span>
             ))}
@@ -1163,7 +1158,7 @@ function AudioPlayer({ src }: { src: string }) {
       <button
         type="button"
         onClick={togglePlay}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 text-white transition hover:bg-white/30"
       >
         {isPlaying ? (
           <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
@@ -1176,8 +1171,8 @@ function AudioPlayer({ src }: { src: string }) {
         )}
       </button>
 
-      <div className="relative h-1 flex-1 rounded-full bg-white/10">
-        <div className="absolute inset-y-0 left-0 rounded-full bg-white/80" style={{ width: `${progress}%` }} />
+      <div className="relative h-1 flex-1 rounded-full bg-white/20">
+        <div className="absolute inset-y-0 left-0 rounded-full bg-white" style={{ width: `${progress}%` }} />
       </div>
     </div>
   );
@@ -1237,7 +1232,7 @@ function VideoNote({ src }: { src: string }) {
   return (
     <div className="relative mt-1 h-56 w-56 max-w-full select-none">
       <div
-        className="relative h-full w-full cursor-pointer overflow-hidden rounded-full bg-[#212d3b]"
+        className="relative h-full w-full cursor-pointer overflow-hidden rounded-full bg-black"
         onClick={togglePlay}
         role="button"
         tabIndex={0}
@@ -1260,11 +1255,10 @@ function VideoNote({ src }: { src: string }) {
           className="h-full w-full object-cover"
         />
 
-        {/* Плашка с иконкой Play (как в Telegram) */}
         {!isPlaying && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/90 text-black shadow-lg">
-              <svg viewBox="0 0 24 24" className="ml-1 h-6 w-6" fill="currentColor">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-black shadow-lg">
+              <svg viewBox="0 0 24 24" className="ml-0.5 h-5 w-5" fill="currentColor">
                 <path d="M8 5v14l11-7z" />
               </svg>
             </div>
@@ -1273,22 +1267,20 @@ function VideoNote({ src }: { src: string }) {
 
         {isPlaying && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition hover:opacity-100">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-black/40 text-white">
-              <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 text-white">
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
                 <path d="M6 4h4v16H6zm8 0h4v16h-4z" />
               </svg>
             </div>
           </div>
         )}
 
-        {/* Прогресс бар внизу */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1.5 bg-black/30">
           <div className="h-full bg-white/80 transition-[width] duration-150" style={{ width: `${progress}%` }} />
         </div>
       </div>
 
-      {/* Таймер (плашка на круге) */}
-      <span className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
+      <span className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
         {isPlaying ? fmtSec(current) : fmtSec(duration)}
       </span>
     </div>
