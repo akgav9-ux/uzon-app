@@ -310,6 +310,8 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const [uploading, setUploading] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const lastCountRef = useRef(0);
 
   // refs аудио
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -336,14 +338,29 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     queryKey: qk.conversation(conversationId),
     queryFn: () => get<{ conversation: ConversationPayload; myRole: string; members: MemberRow[] }>(`/api/conversations/${conversationId}`),
   });
+  
+  // Убран частый refetchInterval, добавлен staleTime чтобы не дергать ленту
   const messagesQuery = useQuery({
     queryKey: qk.messages(conversationId),
     queryFn: () => get<{ messages: MessagePayload[] }>(`/api/conversations/${conversationId}/messages?limit=40`),
-    refetchInterval: 3000,
+    refetchInterval: 5000,
+    staleTime: 2000,
   });
 
+  // Умный скролл — не дергаем если пользователь листает историю
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const list = messagesQuery.data?.messages ?? [];
+    const prev = lastCountRef.current;
+    lastCountRef.current = list.length;
+    if (list.length === prev) return;
+
+    const el = messagesContainerRef.current;
+    if (!el) return;
+
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < 200) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messagesQuery.data?.messages.length]);
 
   // присваиваем srcObject, когда <video> уже в DOM
@@ -658,7 +675,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const canPost = conversation.kind !== "channel" || conversation.myRole === "owner" || conversation.myRole === "admin" || !conversation.onlyAdminsCanPost;
 
   return (
-    <div className="flex h-[calc(100dvh-11rem)] flex-col overflow-hidden rounded-2xl border border-line bg-surface md:h-[calc(100dvh-7.5rem)]">
+    <div className="flex h-[calc(100dvh-13rem)] flex-col overflow-hidden rounded-2xl border border-line bg-surface md:h-[calc(100dvh-7.5rem)]">
       <header className="flex items-center gap-2 border-b border-line px-3 py-2.5">
         {onBack && (
           <IconButton label={t("common.back")} onClick={onBack}>
@@ -695,7 +712,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         </div>
       )}
 
-      <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+      <div ref={messagesContainerRef} className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
         {messages.length === 0 && <EmptyState title={t("chat.empty")} description={t("chat.write")} />}
         {messages.map((message) => (
           <MessageBubble
@@ -994,9 +1011,13 @@ function MessageBubble({
         )}
         <div
           className={cn(
-            "relative rounded-2xl px-3 py-2 text-sm",
-            message.isMine ? "bg-brand text-white rounded-br-sm" : "border border-line bg-surface2 text-ink rounded-bl-sm",
-            isVideoNote && "p-1.5 overflow-hidden",
+            "relative text-sm",
+            isVideoNote
+              ? "p-0"
+              : cn(
+                  "rounded-2xl px-3 py-2",
+                  message.isMine ? "bg-brand text-white rounded-br-sm" : "border border-line bg-surface2 text-ink rounded-bl-sm",
+                ),
           )}
         >
           {message.replyTo && (
@@ -1234,10 +1255,11 @@ function VideoNote({ src }: { src: string }) {
           src={src}
           playsInline
           preload="metadata"
+          poster="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiPjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMwMDAiLz48L3N2Zz4="
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}
           onLoadedMetadata={handleLoadedMetadata}
-          className="h-full w-full object-cover"
+          className="h-full w-full bg-black object-cover"
         />
 
         {!isPlaying && (
