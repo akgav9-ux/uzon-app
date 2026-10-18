@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 import { AppProviders } from "@/components/providers";
+import { PwaRegister } from "@/components/PwaRegister";
 
 export const metadata: Metadata = {
   title: "UZON — Created in Uzbekistan. Connected to the world.",
@@ -31,8 +32,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  userScalable: false, // Отключает случайный зум при двойном тапе (как в приложении)
-  viewportFit: "cover", // Важно для "челки" iPhone
+  userScalable: false,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -40,26 +41,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="ru" data-theme="dark" suppressHydrationWarning>
       <body className="min-h-dvh bg-canvas text-ink antialiased">
         <AppProviders>{children}</AppProviders>
-
-        {/* Регистрация Service Worker для PWA */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').then(
-                    function(registration) {
-                      console.log('PWA Service Worker зарегистрирован');
-                    },
-                    function(err) {
-                      console.log('PWA Service Worker ошибка:', err);
-                    }
-                  );
-                });
-              }
-            `,
-          }}
-        />
+        <PwaRegister />
       </body>
     </html>
   );
