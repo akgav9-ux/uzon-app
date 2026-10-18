@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { ApiError } from "@/lib/http";
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
-// Клиент S3 для Selectel
+// Клиент S3 для Selectel (vHosted)
 const s3Client = new S3Client({
   region: process.env.S3_REGION || "ru-7",
   endpoint: process.env.S3_ENDPOINT || "https://s3.ru-7.storage.selcloud.ru",
@@ -13,11 +13,12 @@ const s3Client = new S3Client({
     accessKeyId: process.env.S3_ACCESS_KEY!,
     secretAccessKey: process.env.S3_SECRET_KEY!,
   },
-  forcePathStyle: true, // Важно для Selectel S3
+  forcePathStyle: false, // ИСПРАВЛЕНО: false для vHosted
 });
 
 const S3_BUCKET = process.env.S3_BUCKET || "uzon-media";
-const S3_PUBLIC_URL = `${process.env.S3_ENDPOINT}/${S3_BUCKET}`;
+// ИСПРАВЛЕНО: для vHosted имя бакета идёт перед s3
+const S3_PUBLIC_URL = `https://${S3_BUCKET}.s3.ru-7.storage.selcloud.ru`;
 
 export const MEDIA_ROOT = process.env.MEDIA_DIR
   ? path.resolve(process.env.MEDIA_DIR)
@@ -61,7 +62,6 @@ const EXT: Record<string, string> = {
   "application/zip": "zip",
 };
 
-/** Magic-byte sniffing so a renamed executable cannot be uploaded as media. */
 function sniff(buffer: Buffer, declaredMime: string): boolean {
   if (buffer.length < 12) return false;
   const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
@@ -92,9 +92,6 @@ export async function ensureMediaDir(): Promise<void> {
   await mkdir(MEDIA_ROOT, { recursive: true });
 }
 
-/**
- * Загружает файл в Selectel S3 и возвращает ключ.
- */
 export async function writeMedia(opts: {
   file: File;
   ownerId: string;
@@ -135,9 +132,6 @@ export async function writeMedia(opts: {
   return { key, size: file.size, mime, kind: mediaKind(mime) };
 }
 
-/**
- * Удаляет файл из S3.
- */
 export async function deleteMedia(key: string): Promise<void> {
   try {
     await s3Client.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: key }));
@@ -146,10 +140,6 @@ export async function deleteMedia(key: string): Promise<void> {
   }
 }
 
-/**
- * Оставлены для совместимости со старым кодом (локальная разработка).
- * В production файлы отдаются из S3 напрямую.
- */
 export function absoluteMediaPath(key: string): string {
   const resolved = path.join(MEDIA_ROOT, key);
   if (!resolved.startsWith(MEDIA_ROOT)) throw new ApiError(400, "invalid_key", "Invalid media key");

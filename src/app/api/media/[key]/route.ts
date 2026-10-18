@@ -12,8 +12,8 @@ export const runtime = "nodejs";
 
 type Params = { params: Promise<{ key: string }> };
 
-// Базовый URL вашего S3-хранилища Selectel
-const S3_PUBLIC_URL = `${process.env.S3_ENDPOINT}/${process.env.S3_BUCKET}`;
+// ИСПРАВЛЕНО: для vHosted имя бакета идёт перед s3
+const S3_PUBLIC_URL = `https://${process.env.S3_BUCKET}.s3.ru-7.storage.selcloud.ru`;
 
 export async function GET(req: Request, { params }: Params) {
   try {
@@ -25,7 +25,6 @@ export async function GET(req: Request, { params }: Params) {
     const viewer = await getSessionUser(req);
     await assertCanAccessMedia(row, viewer?.id ?? null, viewer?.role ?? "user");
 
-    // Если у файла есть внешний URL (например, старые файлы), перенаправляем на него
     if (row.remoteUrl) {
       return new Response(null, {
         status: 302,
@@ -33,7 +32,6 @@ export async function GET(req: Request, { params }: Params) {
       });
     }
 
-    // ИСПРАВЛЕНИЕ: Вместо streamMedia (чтения с диска) перенаправляем на S3
     const publicUrl = `${S3_PUBLIC_URL}/${row.key}`;
     return new Response(null, {
       status: 302,
@@ -68,11 +66,6 @@ export async function DELETE(req: Request, { params }: Params) {
   }
 }
 
-/**
- * Media access is derived from the referencing entity (post / story / video)
- * when one exists, otherwise from the media row visibility. Owners and staff
- * always have access; staff need it for moderation.
- */
 async function assertCanAccessMedia(row: typeof media.$inferSelect, viewerId: string | null, role: string) {
   if (row.ownerId === viewerId) return;
   if (role === "admin" || role === "moderator") return;
@@ -112,7 +105,7 @@ async function assertCanAccessMedia(row: typeof media.$inferSelect, viewerId: st
     return;
   }
 
-  if (row.visibility === "public") return; // avatars, covers, unattached assets
+  if (row.visibility === "public") return;
   await assertAudience(row.visibility, row.ownerId, viewerId);
 }
 
