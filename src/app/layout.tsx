@@ -9,6 +9,18 @@ export const metadata: Metadata = {
     "UZON is a social platform combining a messenger, stories, vertical clips, long-form video and a creator studio.",
   applicationName: "UZON",
   manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "UZON",
+  },
+  icons: {
+    icon: [
+      { url: "/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {
@@ -18,7 +30,9 @@ export const viewport: Viewport = {
   ],
   width: "device-width",
   initialScale: 1,
-  viewportFit: "cover",
+  maximumScale: 1,
+  userScalable: false, // Отключает случайный зум при двойном тапе (как в приложении)
+  viewportFit: "cover", // Важно для "челки" iPhone
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -26,6 +40,26 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="ru" data-theme="dark" suppressHydrationWarning>
       <body className="min-h-dvh bg-canvas text-ink antialiased">
         <AppProviders>{children}</AppProviders>
+
+        {/* Регистрация Service Worker для PWA */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js').then(
+                    function(registration) {
+                      console.log('PWA Service Worker зарегистрирован');
+                    },
+                    function(err) {
+                      console.log('PWA Service Worker ошибка:', err);
+                    }
+                  );
+                });
+              }
+            `,
+          }}
+        />
       </body>
     </html>
   );
