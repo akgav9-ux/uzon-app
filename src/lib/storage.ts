@@ -5,7 +5,6 @@ import { randomUUID } from "node:crypto";
 import { ApiError } from "@/lib/http";
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
-// Клиент S3 для Selectel (vHosted)
 const s3Client = new S3Client({
   region: process.env.S3_REGION || "ru-7",
   endpoint: process.env.S3_ENDPOINT || "https://s3.ru-7.storage.selcloud.ru",
@@ -13,11 +12,10 @@ const s3Client = new S3Client({
     accessKeyId: process.env.S3_ACCESS_KEY!,
     secretAccessKey: process.env.S3_SECRET_KEY!,
   },
-  forcePathStyle: false, // ИСПРАВЛЕНО: false для vHosted
+  forcePathStyle: false,
 });
 
 const S3_BUCKET = process.env.S3_BUCKET || "uzon-media";
-// ИСПРАВЛЕНО: для vHosted имя бакета идёт перед s3
 const S3_PUBLIC_URL = `https://${S3_BUCKET}.s3.ru-7.storage.selcloud.ru`;
 
 export const MEDIA_ROOT = process.env.MEDIA_DIR
@@ -41,6 +39,46 @@ export function mediaKind(mime: string): "image" | "video" | "audio" | "file" {
   if (mime.startsWith("video/")) return "video";
   if (mime.startsWith("audio/")) return "audio";
   return "file";
+}
+
+// Определяем MIME по расширению, если file.type пустой
+function mimeFromExt(fileName: string): string | null {
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "webp":
+      return "image/webp";
+    case "gif":
+      return "image/gif";
+    case "avif":
+      return "image/avif";
+    case "mp4":
+      return "video/mp4";
+    case "webm":
+      return "video/webm";
+    case "mov":
+      return "video/quicktime";
+    case "mp3":
+      return "audio/mpeg";
+    case "ogg":
+      return "audio/ogg";
+    case "m4a":
+      return "audio/mp4";
+    case "wav":
+      return "audio/wav";
+    case "pdf":
+      return "application/pdf";
+    case "txt":
+      return "text/plain";
+    case "zip":
+      return "application/zip";
+    default:
+      return null;
+  }
 }
 
 const EXT: Record<string, string> = {
@@ -101,7 +139,12 @@ export async function writeMedia(opts: {
   const { file, ownerId, maxBytes } = opts;
   const allowed = opts.allowed ?? ALLOWED_MIME;
 
-  const mime = file.type.toLowerCase().split(";")[0].trim();
+  // ИСПРАВЛЕНИЕ: если file.type пустой, определяем MIME по расширению
+  let mime = file.type.toLowerCase().split(";")[0].trim();
+  if (!mime || mime === "application/octet-stream") {
+    const fromExt = mimeFromExt(file.name);
+    if (fromExt) mime = fromExt;
+  }
 
   if (!allowed.includes(mime)) {
     throw new ApiError(415, "unsupported_media_type", `Unsupported file type: ${mime || "unknown"}`);

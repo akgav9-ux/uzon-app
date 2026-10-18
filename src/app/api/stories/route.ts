@@ -11,11 +11,15 @@ import { storyCreateSchema } from "@/lib/validation";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/**
- * Story tray: active (non-expired) stories grouped per author, filtered by the
- * author's `whoCanSeeStories` rule and by blocks. Expiry is enforced here on
- * the server, never in the client.
- */
+// Автоматическое определение типа по расширению, если kind = "file"
+function resolveKind(asset: { kind: string; key: string }): "image" | "video" | "file" {
+  if (asset.kind === "image" || asset.kind === "video") return asset.kind;
+  const ext = asset.key.split(".").pop()?.toLowerCase() ?? "";
+  if (["jpg", "jpeg", "png", "webp", "gif", "avif"].includes(ext)) return "image";
+  if (["mp4", "webm", "mov", "quicktime"].includes(ext)) return "video";
+  return "file";
+}
+
 export async function GET(req: Request) {
   try {
     const user = await requireUser(req);
@@ -28,24 +32,17 @@ export async function GET(req: Request) {
     const rows = await db.select().from(stories).where(and(...conditions)).orderBy(desc(stories.createdAt)).limit(200);
 
     const authorIds = Array.from(new Set(rows.map((r) => r.userId)));
-    const [privacyRows, followingRows, blockedRows, contactRows] = await Promise.all([
+    const [privacyRows, followingRows, blockedRows] = await Promise.all([
       authorIds.length ? db.select().from(privacySettings).where(inArray(privacySettings.userId, authorIds)) : Promise.resolve([]),
       authorIds.length
         ? db.select().from(follows).where(and(eq(follows.followerId, user.id), inArray(follows.followingId, authorIds)))
         : Promise.resolve([]),
-      db
-        .select()
-        .from(blocks)
-        .where(or(eq(blocks.blockerId, user.id), eq(blocks.blockedId, user.id))),
-      Promise.resolve([] as { ownerId: string; matchedUserId: string | null }[]),
+      db.select().from(blocks).where(or(eq(blocks.blockerId, user.id), eq(blocks.blockedId, user.id))),
     ]);
-    void contactRows;
 
     const privacyMap = new Map(privacyRows.map((p) => [p.userId, p]));
     const following = new Set(followingRows.map((f) => f.followingId));
-    const blockedIds = new Set(
-      blockedRows.map((b) => (b.blockerId === user.id ? b.blockedId : b.blockerId)),
-    );
+    const blockedIds = new Set(blockedRows.map((b) => (b.blockerId === user.id ? b.blockedId : b.blockerId)));
 
     const visible = rows.filter((row) => {
       if (row.userId === user.id) return true;
@@ -92,10 +89,13 @@ export async function POST(req: Request) {
 
     const [asset] = await db.select().from(media).where(and(eq(media.id, body.mediaId), eq(media.ownerId, user.id))).limit(1);
     if (!asset) throw new ApiError(404, "media_not_found", "Upload the media first");
-    if (asset.kind !== "image" && asset.kind !== "video") {
+
+    // ИСПРАВЛЕНИЕ: определяем тип по расширению, если kind = "file"
+    const kind = resolveKind(asset);
+    if (kind !== "image" && kind !== "video") {
       throw new ApiError(415, "unsupported_media_type", "Stories support photos and videos only");
     }
-    if (asset.kind === "video" && (asset.durationMs ?? 0) > config.storyMaxSeconds * 1000) {
+    if (kind === "video" && (asset.durationMs ?? 0) > config.storyMaxSeconds * 1000) {
       throw new ApiError(422, "duration_exceeded", `Story videos are limited to ${config.storyMaxSeconds} seconds`);
     }
 
