@@ -2,12 +2,17 @@ import type { media } from "@/db/schema";
 
 export type MediaRow = typeof media.$inferSelect;
 
+// Базовый URL вашего S3-хранилища Selectel (vHosted)
+const S3_BUCKET = process.env.S3_BUCKET || "uzon-media";
+const S3_PUBLIC_URL = "https://adb43e56-5d48-413f-b1e0-b22ead06ebcc.selstorage.ru";
+
 /** Resolves the URL a browser should request for a stored media asset. */
 export function mediaSrc(mediaLike: { key: string; remoteUrl?: string | null } | null | undefined): string | null {
   if (!mediaLike) return null;
   if (mediaLike.remoteUrl) return mediaLike.remoteUrl;
   if (/^https?:\/\//.test(mediaLike.key)) return mediaLike.key;
-  return `/api/media/${mediaLike.key}`;
+  // ИСПРАВЛЕНИЕ: возвращаем прямую ссылку на S3, а не /api/media/...
+  return `${S3_PUBLIC_URL}/${mediaLike.key}`;
 }
 
 export function serializeMedia(m: MediaRow | null | undefined) {

@@ -74,11 +74,6 @@ export function VideoCard({ video, layout = "grid" }: { video: VideoPayload; lay
   );
 }
 
-/**
- * Long-form player. Reports real watch progress every 5 seconds and registers
- * a view only after the configured minimum watch time (server validates and
- * de-duplicates it per viewer).
- */
 export function VideoPlayer({
   video,
   viewRegisterMs = 3000,
@@ -114,7 +109,7 @@ export function VideoPlayer({
     }
     if (autoPlay) void element.play().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [video.id, video.positionMs, video.durationMs, autoPlay]); // Убраны t, fmt, toast для предотвращения бесконечного цикла
+  }, [video.id, video.positionMs, video.durationMs, autoPlay]);
 
   const sendProgress = useCallback(() => {
     const element = ref.current;
@@ -179,46 +174,52 @@ export function VideoPlayer({
   return (
     <div className="overflow-hidden rounded-2xl border border-line bg-black">
       <div className="relative">
-        <video
-          ref={ref}
-          src={video.url ?? undefined}
-          poster={video.posterUrl ?? undefined}
-          className="max-h-[70vh] w-full bg-black"
-          playsInline
-          muted={muted}
-          onClick={() => {
-            const element = ref.current;
-            if (!element) return;
-            if (element.paused) void element.play();
-            else element.pause();
-          }}
-          onPlay={() => {
-            lastTick.current = Date.now();
-            setPlaying(true);
-          }}
-          onPause={() => {
-            watchedMs.current += Date.now() - lastTick.current;
-            lastTick.current = Date.now();
-            setPlaying(false);
-            registerView();
-          }}
-          onTimeUpdate={(event) => {
-            setCurrent(event.currentTarget.currentTime);
-            if (event.currentTarget.buffered.length) {
-              setBuffered(event.currentTarget.buffered.end(event.currentTarget.buffered.length - 1));
-            }
-            if (watchedMs.current >= viewRegisterMs) registerView();
-          }}
-          onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || duration)}
-          onEnded={() => {
-            watchedMs.current += Date.now() - lastTick.current;
-            registerView();
-            sendProgress();
-            onEnded?.();
-          }}
-          onError={() => toast(t("errors.network"), "error")}
-        />
-        {!playing && (
+        {video.url ? (
+          <video
+            ref={ref}
+            src={video.url}
+            poster={video.posterUrl ?? undefined}
+            className="max-h-[70vh] w-full bg-black"
+            playsInline
+            muted={muted}
+            onClick={() => {
+              const element = ref.current;
+              if (!element) return;
+              if (element.paused) void element.play();
+              else element.pause();
+            }}
+            onPlay={() => {
+              lastTick.current = Date.now();
+              setPlaying(true);
+            }}
+            onPause={() => {
+              watchedMs.current += Date.now() - lastTick.current;
+              lastTick.current = Date.now();
+              setPlaying(false);
+              registerView();
+            }}
+            onTimeUpdate={(event) => {
+              setCurrent(event.currentTarget.currentTime);
+              if (event.currentTarget.buffered.length) {
+                setBuffered(event.currentTarget.buffered.end(event.currentTarget.buffered.length - 1));
+              }
+              if (watchedMs.current >= viewRegisterMs) registerView();
+            }}
+            onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || duration)}
+            onEnded={() => {
+              watchedMs.current += Date.now() - lastTick.current;
+              registerView();
+              sendProgress();
+              onEnded?.();
+            }}
+            onError={() => toast(t("errors.network"), "error")}
+          />
+        ) : (
+          <div className="flex h-64 w-full items-center justify-center bg-surface2 text-muted">
+            {t("common.error")}
+          </div>
+        )}
+        {!playing && video.url && (
           <button
             aria-label={t("video.resume")}
             className="absolute inset-0 flex items-center justify-center bg-black/30"
