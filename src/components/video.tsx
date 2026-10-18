@@ -28,7 +28,7 @@ export function VideoCard({ video, layout = "grid" }: { video: VideoPayload; lay
   const deleteMutation = useMutation({
     mutationFn: () => del(`/api/videos/${video.id}`),
     onSuccess: () => {
-      toast(t("video.deleted"), "success");
+      toast(t("common.delete"), "success");
       queryClient.invalidateQueries({ queryKey: ["videos"] });
       queryClient.invalidateQueries({ queryKey: ["feed"] });
     },
@@ -197,7 +197,7 @@ export function VideoPlayer({
   const deleteMutation = useMutation({
     mutationFn: () => del(`/api/videos/${video.id}`),
     onSuccess: () => {
-      toast(t("video.deleted"), "success");
+      toast(t("common.delete"), "success");
       queryClient.invalidateQueries({ queryKey: ["videos"] });
       queryClient.invalidateQueries({ queryKey: ["feed"] });
     },
