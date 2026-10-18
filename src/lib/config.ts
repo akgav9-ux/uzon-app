@@ -103,7 +103,7 @@ export function publicConfig(config: ServerConfig) {
     postMaxLength: config.postMaxLength,
     viewRegisterMs: config.viewRegisterMs,
     storyLifetimeHours: config.storyLifetimeHours,
-    iceServers: config.iceServers.map((s) => ({ urls: s.urls })),
+    iceServers: config.iceServers.map((s) => ({ urls: s.urls, username: s.username, credential: s.credential })),
     demoMode: config.demoMode,
   };
 }
