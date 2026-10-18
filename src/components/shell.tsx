@@ -134,7 +134,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-line bg-surface/60 px-3 py-4 md:flex lg:w-64">
         <Link href="/home" className="mb-5 flex items-center gap-2.5 px-2">
           <UzonMark size={34} />
-          <UzonWordmark withSlogan />
+          <UzonWordmark />
         </Link>
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto" aria-label={t("nav.home")}>
           {all.map((item) => (

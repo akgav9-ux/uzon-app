@@ -17,7 +17,6 @@ export function UzonWordmark({ className, withSlogan }: { className?: string; wi
   return (
     <span className={cn("flex flex-col leading-none", className)}>
       <span className="text-[20px] font-extrabold tracking-[0.15em] text-ink">UZON</span>
-      {withSlogan && <span className="mt-0.5 text-[8px] font-medium tracking-[0.15em] text-muted uppercase">Made in Uzbekistan</span>}
     </span>
   );
 }

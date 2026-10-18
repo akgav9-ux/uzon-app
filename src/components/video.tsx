@@ -179,7 +179,7 @@ export function VideoPlayer({
             ref={ref}
             src={video.url}
             poster={video.posterUrl ?? undefined}
-            className="max-h-[70vh] w-full bg-black"
+            className="aspect-video max-h-[70vh] w-full bg-black object-contain"
             playsInline
             muted={muted}
             onClick={() => {
