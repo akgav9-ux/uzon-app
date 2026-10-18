@@ -20,11 +20,25 @@ import {
   Trash2,
   Video as VideoIcon,
   X,
-  Play,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "@/components/providers";
-import { Avatar, Badge, Button, EmptyState, ErrorState, Field, IconButton, Input, Menu, MenuItem, Modal, Skeleton, Switch, Textarea } from "@/components/ui";
+import {
+  Avatar,
+  Badge,
+  Button,
+  EmptyState,
+  ErrorState,
+  Field,
+  IconButton,
+  Input,
+  Menu,
+  MenuItem,
+  Modal,
+  Skeleton,
+  Switch,
+  Textarea,
+} from "@/components/ui";
 import { ReportModal } from "@/components/post";
 import { del, get, patch, post as postApi, qk, uploadMedia } from "@/lib/client/api";
 import type { ConversationPayload, MessagePayload } from "@/lib/serialize";
@@ -32,6 +46,10 @@ import { cn } from "@/lib/utils";
 
 const EMOJI = ["😀", "😂", "🥰", "😎", "🤔", "👍", "👏", "🙏", "🔥", "🎉", "❤️", "💯", "😢", "😡", "🇺🇿", "⚽", "🎬", "🚀"];
 const REACTIONS = ["❤️", "👍", "😂", "🎉", "😢", "🔥"];
+
+/* -------------------------------------------------------------------------- */
+/*                                 CHAT LIST                                  */
+/* -------------------------------------------------------------------------- */
 
 export function ChatList({ onOpen, activeId }: { onOpen: (conversation: ConversationPayload) => void; activeId?: string }) {
   const { t, fmt } = useApp();
@@ -120,6 +138,10 @@ export function ChatList({ onOpen, activeId }: { onOpen: (conversation: Conversa
     </div>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/*                       CREATE CONVERSATION MODAL                            */
+/* -------------------------------------------------------------------------- */
 
 export function CreateConversationModal({
   open,
@@ -251,6 +273,20 @@ export function CreateConversationModal({
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/*                                 CHAT ROOM                                  */
+/* -------------------------------------------------------------------------- */
+
+type MemberRow = {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  role: string;
+  joinedAt: string;
+  lastSeenAt: string | null;
+};
+
 export function ChatRoom({ conversationId, onBack }: { conversationId: string; onBack?: () => void }) {
   const { t, fmt, user, toast } = useApp();
   const queryClient = useQueryClient();
@@ -258,13 +294,13 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const [replyTo, setReplyTo] = useState<MessagePayload | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
 
-  // запись аудио
+  // === аудио-запись ===
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
   const [requestingMic, setRequestingMic] = useState(false);
 
-  // запись видео
+  // === видео-запись ===
   const [recordingVideo, setRecordingVideo] = useState(false);
   const [videoSeconds, setVideoSeconds] = useState(0);
   const [requestingCam, setRequestingCam] = useState(false);
@@ -275,7 +311,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // рефы аудио
+  // refs аудио
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const audioStreamRef = useRef<MediaStream | null>(null);
@@ -284,14 +320,14 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const recordTimerRef = useRef<number | null>(null);
   const recordingStartAtRef = useRef<number>(0);
 
-  // рефы видео
+  // refs видео
   const videoRecorderRef = useRef<MediaRecorder | null>(null);
   const videoChunksRef = useRef<Blob[]>([]);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
   const currentStreamRef = useRef<MediaStream | null>(null);
   const videoTimerRef = useRef<number | null>(null);
 
-  // общий флаг «пользователь отменил»
+  // общий флаг «отменено»
   const cancelledRecordRef = useRef(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -310,15 +346,24 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messagesQuery.data?.messages.length]);
 
-  // cleanup при размонтировании
+  // присваиваем srcObject, когда <video> уже в DOM
+  useEffect(() => {
+    if (recordingVideo && videoPreviewRef.current && currentStreamRef.current) {
+      videoPreviewRef.current.srcObject = currentStreamRef.current;
+      const p = videoPreviewRef.current.play();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    }
+  }, [recordingVideo]);
+
+  // cleanup
   useEffect(() => {
     return () => {
       if (recordTimerRef.current) window.clearInterval(recordTimerRef.current);
       if (videoTimerRef.current) window.clearInterval(videoTimerRef.current);
       if (analyserRafRef.current) cancelAnimationFrame(analyserRafRef.current);
       audioCtxRef.current?.close().catch(() => {});
-      audioStreamRef.current?.getTracks().forEach((t) => t.stop());
-      currentStreamRef.current?.getTracks().forEach((t) => t.stop());
+      audioStreamRef.current?.getTracks().forEach((tr) => tr.stop());
+      currentStreamRef.current?.getTracks().forEach((tr) => tr.stop());
     };
   }, []);
 
@@ -362,7 +407,8 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     onError: (error: Error) => toast(error.message, "error"),
   });
 
-  // ===================== АУДИО =====================
+  /* ----------------------------- АУДИО ----------------------------- */
+
   const startRecording = async () => {
     if (recording) return;
     cancelledRecordRef.current = false;
@@ -371,10 +417,11 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
 
-      // визуализация громкости
+      // визуализация уровня
       try {
         const Ctx: typeof AudioContext =
-          window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         const ctx = new Ctx();
         audioCtxRef.current = ctx;
         const source = ctx.createMediaStreamSource(stream);
@@ -395,16 +442,21 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         };
         tick();
       } catch {
-        /* визуализация не критична */
+        /* необязательно */
       }
 
-      const recorder = new MediaRecorder(stream);
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : "audio/webm";
+
+      const recorder = new MediaRecorder(stream, { mimeType: mime });
       chunksRef.current = [];
       recorder.ondataavailable = (event) => {
-        if (event.data.size) chunksRef.current.push(event.data);
+        if (event.data && event.data.size > 0) chunksRef.current.push(event.data);
       };
       recorder.onstop = async () => {
-        // cleanup
         audioStreamRef.current?.getTracks().forEach((tr) => tr.stop());
         audioStreamRef.current = null;
         if (audioCtxRef.current) {
@@ -421,16 +473,16 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         }
         setAudioLevel(0);
 
-        if (cancelledRecordRef.current) {
+        if (cancelledRecordRef.current || chunksRef.current.length === 0) {
           chunksRef.current = [];
           setRecording(false);
           setRecordSeconds(0);
           return;
         }
 
-        const mime = (recorder.mimeType || "audio/webm").split(";")[0];
+        const ext = mime.includes("mp4") ? "m4a" : "webm";
         const blob = new Blob(chunksRef.current, { type: mime });
-        const file = new File([blob], `voice-${Date.now()}.webm`, { type: blob.type });
+        const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: blob.type });
         try {
           setUploading(true);
           const uploaded = await uploadMedia(file, { purpose: "audio" });
@@ -445,7 +497,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       };
 
       recorderRef.current = recorder;
-      recorder.start();
+      recorder.start(250);
       recordingStartAtRef.current = Date.now();
       setRecording(true);
       setRecordSeconds(0);
@@ -454,6 +506,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       }, 200);
     } catch {
       toast(t("call.permissionDenied"), "error");
+      setRecording(false);
     } finally {
       setRequestingMic(false);
     }
@@ -465,12 +518,19 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       window.clearInterval(recordTimerRef.current);
       recordTimerRef.current = null;
     }
-    if (recorderRef.current && recorderRef.current.state !== "inactive") {
-      recorderRef.current.stop();
+    const mr = recorderRef.current;
+    recorderRef.current = null;
+    if (mr && mr.state !== "inactive") {
+      try {
+        mr.stop();
+      } catch {
+        /* ignore */
+      }
     }
   };
 
-  // ===================== ВИДЕО =====================
+  /* ----------------------------- ВИДЕО ----------------------------- */
+
   const startVideoRecording = async () => {
     if (recordingVideo) return;
     cancelledRecordRef.current = false;
@@ -482,17 +542,34 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       });
       currentStreamRef.current = stream;
 
+      // Сначала включаем рендер превью, затем ждём кадр — srcObject выставит useEffect
+      setRecordingVideo(true);
+      setVideoSeconds(0);
+
+      // Дожидаемся, что <video> уже в DOM
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
       if (videoPreviewRef.current) {
         videoPreviewRef.current.srcObject = stream;
-        videoPreviewRef.current.play().catch(() => {});
+        const p = videoPreviewRef.current.play();
+        if (p && typeof p.catch === "function") p.catch(() => {});
       }
 
-      const recorder = new MediaRecorder(stream);
+      const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+        ? "video/webm;codecs=vp9,opus"
+        : MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+          ? "video/webm;codecs=vp8,opus"
+          : MediaRecorder.isTypeSupported("video/mp4")
+            ? "video/mp4"
+            : "video/webm";
+
+      const recorder = new MediaRecorder(stream, { mimeType: mime });
       videoChunksRef.current = [];
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) videoChunksRef.current.push(event.data);
+        if (event.data && event.data.size > 0) videoChunksRef.current.push(event.data);
       };
       recorder.onstop = async () => {
+        // Убиваем поток ТОЛЬКО после того как финальный dataavailable уже в chunks
         stream.getTracks().forEach((tr) => tr.stop());
         if (videoPreviewRef.current) videoPreviewRef.current.srcObject = null;
         currentStreamRef.current = null;
@@ -502,16 +579,16 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
           videoTimerRef.current = null;
         }
 
-        if (cancelledRecordRef.current) {
+        if (cancelledRecordRef.current || videoChunksRef.current.length === 0) {
           videoChunksRef.current = [];
           setRecordingVideo(false);
           setVideoSeconds(0);
           return;
         }
 
-        const mime = (recorder.mimeType || "video/webm").split(";")[0];
+        const ext = mime.includes("mp4") ? "mp4" : "webm";
         const blob = new Blob(videoChunksRef.current, { type: mime });
-        const file = new File([blob], `video-note-${Date.now()}.webm`, { type: blob.type });
+        const file = new File([blob], `video-note-${Date.now()}.${ext}`, { type: blob.type });
         try {
           setUploading(true);
           const uploaded = await uploadMedia(file, { purpose: "video" });
@@ -526,29 +603,55 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       };
 
       videoRecorderRef.current = recorder;
-      recorder.start();
-      setRecordingVideo(true);
-      setVideoSeconds(0);
+      recorder.start(1000);
       videoTimerRef.current = window.setInterval(() => setVideoSeconds((s) => s + 1), 1000);
     } catch {
       toast("Нет доступа к камере", "error");
+      setRecordingVideo(false);
+      setVideoSeconds(0);
+      currentStreamRef.current?.getTracks().forEach((tr) => tr.stop());
+      currentStreamRef.current = null;
     } finally {
       setRequestingCam(false);
     }
   };
 
-  const stopVideoRecording = (cancelled = false) => {
+  const stopVideoRecording = async (cancelled = false) => {
     cancelledRecordRef.current = cancelled;
     if (videoTimerRef.current) {
       window.clearInterval(videoTimerRef.current);
       videoTimerRef.current = null;
     }
-    if (videoRecorderRef.current && videoRecorderRef.current.state !== "inactive") {
-      videoRecorderRef.current.stop();
+    const mr = videoRecorderRef.current;
+    videoRecorderRef.current = null;
+    if (!mr || mr.state === "inactive") return;
+
+    // Явно ждём финальный чанк, иначе blob будет пустой / чёрный
+    const finalChunk = new Promise<void>((resolve) => {
+      mr.addEventListener(
+        "dataavailable",
+        (e) => {
+          if (e.data && e.data.size > 0) videoChunksRef.current.push(e.data);
+          resolve();
+        },
+        { once: true },
+      );
+      setTimeout(resolve, 400); // страховка
+    });
+
+    try {
+      mr.stop();
+    } catch {
+      /* ignore */
     }
+    await finalChunk;
   };
 
-  if (detail.isLoading || messagesQuery.isLoading) return <div className="space-y-2">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>;
+  /* ----------------------------- RENDER ----------------------------- */
+
+  if (detail.isLoading || messagesQuery.isLoading) {
+    return <div className="space-y-2">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>;
+  }
   if (detail.isError) return <ErrorState message={t("errors.forbidden")} onRetry={() => detail.refetch()} />;
 
   const conversation = detail.data!.conversation;
@@ -628,40 +731,40 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
           {requestingMic && <p className="px-2 pb-1 text-[11px] text-muted">Запрос доступа к микрофону…</p>}
           {requestingCam && <p className="px-2 pb-1 text-[11px] text-muted">Запрос доступа к камере…</p>}
 
-          {/* ===== Окно превью камеры при записи видео ===== */}
+          {/* Маленькое превью камеры при записи видео */}
           {recordingVideo && (
-            <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-              <div className="relative w-full max-w-sm overflow-hidden rounded-3xl bg-black shadow-2xl ring-1 ring-white/10">
-                <div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-full bg-red-500/80 px-3 py-1 text-xs font-bold text-white backdrop-blur-md">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75"></span>
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-white"></span>
+            <div className="mb-2 flex justify-center">
+              <div className="relative w-40 overflow-hidden rounded-2xl bg-black shadow-lg ring-1 ring-white/10">
+                <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-md">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
                   </span>
-                  {videoSeconds} сек
+                  {videoSeconds}s
                 </div>
                 <video
                   ref={videoPreviewRef}
                   autoPlay
                   muted
                   playsInline
-                  className="h-[60vh] w-full object-cover"
+                  className="h-52 w-40 object-cover"
                   style={{ transform: "scaleX(-1)" }}
                 />
-                <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center bg-gradient-to-t from-black/80 to-transparent p-4">
-                  <p className="text-center text-sm font-medium text-white/80">Отпустите кнопку, чтобы отправить</p>
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1.5">
+                  <p className="text-center text-[10px] font-medium text-white/85">Отпусти — отправится</p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* ===== Индикатор записи аудио ===== */}
+          {/* Индикатор записи аудио */}
           {recording && (
             <div className="mb-2 flex items-center gap-3 rounded-2xl border border-danger/30 bg-danger/5 px-3 py-2">
               <span className="relative flex h-2 w-2 shrink-0">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-danger" />
               </span>
-              <span className="text-xs font-semibold text-danger tabular-nums">
+              <span className="text-xs font-semibold tabular-nums text-danger">
                 {Math.floor(recordSeconds / 60)}:{String(recordSeconds % 60).padStart(2, "0")}
               </span>
               <div className="flex flex-1 items-center justify-center gap-[3px] overflow-hidden">
@@ -684,8 +787,6 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
             className="flex items-end gap-2"
             onSubmit={(event) => {
               event.preventDefault();
-              // Запись (аудио/видео) останавливается по pointerup/pointercancel,
-              // здесь только обычный текст.
               if (!text.trim()) return;
               send.mutate({ text, replyToId: replyTo?.id });
             }}
@@ -700,7 +801,13 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                 if (!file) return;
                 try {
                   setUploading(true);
-                  const purpose = file.type.startsWith("image") ? "image" : file.type.startsWith("video") ? "video" : file.type.startsWith("audio") ? "audio" : "file";
+                  const purpose = file.type.startsWith("image")
+                    ? "image"
+                    : file.type.startsWith("video")
+                      ? "video"
+                      : file.type.startsWith("audio")
+                        ? "audio"
+                        : "file";
                   const uploaded = await uploadMedia(file, { purpose });
                   await send.mutateAsync({ mediaId: uploaded.media.id, attachmentKind: purpose });
                 } catch (error) {
@@ -727,7 +834,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                     if (text.trim()) send.mutate({ text, replyToId: replyTo?.id });
                   }
                 }}
-                placeholder={recording ? t("chat.recording", { seconds: recordSeconds }) : recordingVideo ? "Идет запись видео..." : t("chat.write")}
+                placeholder={recording ? t("chat.recording", { seconds: recordSeconds }) : recordingVideo ? "Идёт запись видео…" : t("chat.write")}
                 aria-label={t("chat.write")}
                 className="max-h-28 min-h-[44px] resize-none rounded-[22px] border-0 bg-surface2 px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand/50"
               />
@@ -761,7 +868,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                 />
               ) : (
                 <>
-                  {/* Кнопка записи ВИДЕО — удерживай для записи */}
+                  {/* ВИДЕО — hold-to-record */}
                   <button
                     type="button"
                     aria-label="Удерживай, чтобы записать видео"
@@ -773,9 +880,11 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                     }}
                     onPointerUp={(e) => {
                       e.preventDefault();
-                      stopVideoRecording(false);
+                      void stopVideoRecording(false);
                     }}
-                    onPointerCancel={() => stopVideoRecording(true)}
+                    onPointerCancel={() => {
+                      void stopVideoRecording(true);
+                    }}
                     disabled={requestingCam}
                     className={cn(
                       "flex h-11 w-11 touch-none select-none items-center justify-center rounded-full transition-all",
@@ -787,7 +896,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                     <VideoIcon className="h-5 w-5" />
                   </button>
 
-                  {/* Кнопка записи АУДИО — удерживай для записи */}
+                  {/* АУДИО — hold-to-record */}
                   <button
                     type="button"
                     aria-label="Удерживай, чтобы записать голосовое"
@@ -821,22 +930,23 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         <footer className="border-t border-line px-3 py-3 text-center text-xs text-muted">{t("chat.noPermission")}</footer>
       )}
 
-      {infoOpen && <ConversationInfoModal conversationId={conversationId} onClose={() => setInfoOpen(false)} members={detail.data!.members} myRole={detail.data!.myRole} />}
+      {infoOpen && (
+        <ConversationInfoModal
+          conversationId={conversationId}
+          onClose={() => setInfoOpen(false)}
+          members={detail.data!.members}
+          myRole={detail.data!.myRole}
+        />
+      )}
       {reportTarget && <ReportModal open onClose={() => setReportTarget(null)} entityType="message" entityId={reportTarget.id} />}
       {call.isPending && <p className="px-3 py-1 text-xs text-muted">{t("call.connecting")}</p>}
     </div>
   );
 }
 
-type MemberRow = {
-  userId: string;
-  username: string;
-  displayName: string;
-  avatarUrl: string | null;
-  role: string;
-  joinedAt: string;
-  lastSeenAt: string | null;
-};
+/* -------------------------------------------------------------------------- */
+/*                               MESSAGE BUBBLE                               */
+/* -------------------------------------------------------------------------- */
 
 function MessageBubble({
   message,
@@ -882,7 +992,7 @@ function MessageBubble({
           className={cn(
             "relative rounded-2xl px-3 py-2 text-sm",
             message.isMine ? "bg-brand text-white rounded-br-sm" : "border border-line bg-surface2 text-ink rounded-bl-sm",
-            isVideoNote && "p-1.5 overflow-hidden"
+            isVideoNote && "p-1.5 overflow-hidden",
           )}
         >
           {message.replyTo && (
@@ -959,8 +1069,16 @@ function MessageBubble({
                 </button>
               )}
             >
-              {canManage && <MenuItem icon={<Pin className="h-3.5 w-3.5" />} onClick={onPin}>{message.pinned ? t("chat.unpin") : t("chat.pin")}</MenuItem>}
-              {!message.isMine && <MenuItem icon={<Flag className="h-3.5 w-3.5" />} onClick={onReport}>{t("common.report")}</MenuItem>}
+              {canManage && (
+                <MenuItem icon={<Pin className="h-3.5 w-3.5" />} onClick={onPin}>
+                  {message.pinned ? t("chat.unpin") : t("chat.pin")}
+                </MenuItem>
+              )}
+              {!message.isMine && (
+                <MenuItem icon={<Flag className="h-3.5 w-3.5" />} onClick={onReport}>
+                  {t("common.report")}
+                </MenuItem>
+              )}
               {(message.isMine || canManage) && (
                 <MenuItem icon={<Trash2 className="h-3.5 w-3.5" />} tone="danger" onClick={onDelete}>
                   {t("chat.delete")}
@@ -979,6 +1097,10 @@ function MessageBubble({
     </div>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                AUDIO PLAYER                                */
+/* -------------------------------------------------------------------------- */
 
 function AudioPlayer({ src }: { src: string }) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -1013,34 +1135,33 @@ function AudioPlayer({ src }: { src: string }) {
 
   return (
     <div className="mt-1 flex w-[240px] max-w-full items-center gap-3">
-      <audio
-        ref={audioRef}
-        src={src}
-        onTimeUpdate={handleTimeUpdate}
-        onEnded={handleEnded}
-        className="hidden"
-      />
+      <audio ref={audioRef} src={src} onTimeUpdate={handleTimeUpdate} onEnded={handleEnded} className="hidden" />
       <button
         type="button"
         onClick={togglePlay}
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 text-white transition hover:bg-white/30"
       >
         {isPlaying ? (
-          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg>
+          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M6 4h4v16H6zm8 0h4v16h-4z" />
+          </svg>
         ) : (
-          <svg className="ml-1 h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <svg className="ml-1 h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M8 5v14l11-7z" />
+          </svg>
         )}
       </button>
 
       <div className="relative h-1 flex-1 rounded-full bg-white/20">
-        <div
-          className="absolute inset-y-0 left-0 rounded-full bg-white"
-          style={{ width: `${progress}%` }}
-        />
+        <div className="absolute inset-y-0 left-0 rounded-full bg-white" style={{ width: `${progress}%` }} />
       </div>
     </div>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/*                        CONVERSATION INFO MODAL                             */
+/* -------------------------------------------------------------------------- */
 
 function ConversationInfoModal({
   conversationId,
@@ -1055,7 +1176,10 @@ function ConversationInfoModal({
 }) {
   const { t, toast, user } = useApp();
   const queryClient = useQueryClient();
-  const detail = useQuery({ queryKey: qk.conversation(conversationId), queryFn: () => get<{ conversation: ConversationPayload }>(`/api/conversations/${conversationId}`) });
+  const detail = useQuery({
+    queryKey: qk.conversation(conversationId),
+    queryFn: () => get<{ conversation: ConversationPayload }>(`/api/conversations/${conversationId}`),
+  });
   const [title, setTitle] = useState(detail.data?.conversation.title ?? "");
   const [description, setDescription] = useState(detail.data?.conversation.description ?? "");
   const [onlyAdmins, setOnlyAdmins] = useState(detail.data?.conversation.onlyAdminsCanPost ?? false);
@@ -1136,7 +1260,12 @@ function ConversationInfoModal({
                   <span className="block truncate text-xs font-semibold text-ink">{member.displayName}</span>
                   <span className="block truncate text-[11px] text-muted">@{member.username}</span>
                 </Link>
-                {member.role === "owner" && <Badge tone="brand"><Crown className="h-3 w-3" />{t("chat.owner")}</Badge>}
+                {member.role === "owner" && (
+                  <Badge tone="brand">
+                    <Crown className="h-3 w-3" />
+                    {t("chat.owner")}
+                  </Badge>
+                )}
                 {member.role === "admin" && <Badge>{t("chat.admin")}</Badge>}
                 {canManage && member.role !== "owner" && member.userId !== user?.id && (
                   <Menu
