@@ -45,19 +45,6 @@ function VideosInner() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-xl font-semibold text-ink">
-            <PlaySquare className="h-5 w-5 text-brand" />
-            {t("video.title")}
-          </h1>
-          <p className="text-xs text-muted">{t("landing.feature3")}</p>
-        </div>
-        <Link href="/create">
-          <Button size="sm">{t("studio.upload")}</Button>
-        </Link>
-      </header>
-
       <Tabs
         value={section}
         onChange={setSection}
