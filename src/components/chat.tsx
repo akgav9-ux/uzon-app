@@ -671,10 +671,11 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const canPost = conversation.kind !== "channel" || conversation.myRole === "owner" || conversation.myRole === "admin" || !conversation.onlyAdminsCanPost;
 
   return (
-    // УБРАЛИ БЕЛОЕ ОКНО, ТЕПЕРЬ ЧАТ НА ВЕСЬ ЭКРАН
-    <div className="flex h-[calc(100dvh-11rem)] flex-col bg-background md:h-[calc(100dvh-7.5rem)]">
+    // ФИКСИРУЕМ ВЫСОТУ НА ВЕСЬ ЭКРАН, ЧТОБЫ ШАПКА И ВВОД НЕ ДВИГАЛИСЬ
+    <div className="fixed inset-0 z-40 flex h-[100dvh] w-full flex-col bg-background">
       
-      <header className="flex items-center gap-2 border-b border-line px-3 py-2.5 shrink-0 bg-surface">
+      {/* Шапка (прибита к верху) */}
+      <header className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-3 py-2.5">
         {onBack && (
           <IconButton label={t("common.back")} onClick={onBack}>
             <ArrowLeft className="h-4 w-4" />
@@ -704,12 +705,13 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       </header>
 
       {pinned && (
-        <div className="flex items-center gap-2 border-b border-line bg-brandsoft px-3 py-1.5 text-[11px] text-brand shrink-0">
+        <div className="flex shrink-0 items-center gap-2 border-b border-line bg-brandsoft px-3 py-1.5 text-[11px] text-brand">
           <Pin className="h-3 w-3" />
           <span className="truncate">{pinned.text ?? t("chat.pin")}</span>
         </div>
       )}
 
+      {/* Сообщения (скроллятся, занимают всё свободное место) */}
       <div ref={messagesContainerRef} className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
         {messages.length === 0 && <EmptyState title={t("chat.empty")} description={t("chat.write")} />}
         {messages.map((message) => (
@@ -729,7 +731,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       </div>
 
       {replyTo && (
-        <div className="flex items-center gap-2 border-t border-line bg-surface2 px-3 py-2 text-xs shrink-0">
+        <div className="flex shrink-0 items-center gap-2 border-t border-line bg-surface2 px-3 py-2 text-xs">
           <ArrowLeft className="h-3.5 w-3.5 rotate-180 text-brand" />
           <span className="min-w-0 flex-1 truncate text-muted">{replyTo.text ?? replyTo.media?.kind}</span>
           <IconButton label={t("common.cancel")} onClick={() => setReplyTo(null)}>
@@ -739,7 +741,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       )}
 
       {canPost ? (
-        <footer className="safe-bottom border-t border-line bg-surface px-2 py-2 shrink-0">
+        <footer className="safe-bottom shrink-0 border-t border-line bg-surface px-2 py-2">
           {uploading && <p className="px-2 pb-1 text-[11px] text-muted">{t("create.uploading", { percent: "" })}</p>}
           {requestingMic && <p className="px-2 pb-1 text-[11px] text-muted">Запрос доступа к микрофону…</p>}
           {requestingCam && <p className="px-2 pb-1 text-[11px] text-muted">Запрос доступа к камере…</p>}
@@ -940,7 +942,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
           </form>
         </footer>
       ) : (
-        <footer className="border-t border-line px-3 py-3 text-center text-xs text-muted">{t("chat.noPermission")}</footer>
+        <footer className="shrink-0 border-t border-line px-3 py-3 text-center text-xs text-muted">{t("chat.noPermission")}</footer>
       )}
 
       {infoOpen && (
@@ -1002,7 +1004,7 @@ function MessageBubble({
           </Link>
         )}
         
-        {/* Убрали фон/пузырь для видео-кружков. Теперь они висят просто на фоне чата. */}
+        {/* УБРАЛИ ФОН И РАМКИ У ВИДЕО-КРУЖКОВ */}
         <div
           className={cn(
             "relative text-sm",
