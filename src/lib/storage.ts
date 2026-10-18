@@ -3,19 +3,22 @@ import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { ApiError } from "@/lib/http";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
-/**
- * Media storage boundary.
- *
- * The default driver writes to a local directory (`MEDIA_DIR`, default
- * `<cwd>/uploads`) which is NOT publicly served: every byte goes through
- * `GET /api/media/[...key]` where access is checked against the `media` row.
- *
- * Production deployments should point the same interface at object storage
- * (S3 / Supabase Storage / R2). See DEPLOYMENT.md — swap `resolveMediaUrl`
- * and `writeMedia` for the object-storage driver; the database contract
- * (keys, metadata, visibility) does not change.
- */
+// Клиент S3 для Selectel
+const s3Client = new S3Client({
+  region: process.env.S3_REGION || "ru-7",
+  endpoint: process.env.S3_ENDPOINT || "https://s3.ru-7.storage.selcloud.ru",
+  credentials: {
+    accessKeyId: process.env.S3_ACCESS_KEY!,
+    secretAccessKey: process.env.S3_SECRET_KEY!,
+  },
+  forcePathStyle: true, // Важно для Selectel S3
+});
+
+const S3_BUCKET = process.env.S3_BUCKET || "uzon-media";
+const S3_PUBLIC_URL = `${process.env.S3_ENDPOINT}/${S3_BUCKET}`;
+
 export const MEDIA_ROOT = process.env.MEDIA_DIR
   ? path.resolve(process.env.MEDIA_DIR)
   : path.join(process.cwd(), "uploads");
@@ -82,7 +85,7 @@ function sniff(buffer: Buffer, declaredMime: string): boolean {
 }
 
 export function mediaUrl(key: string): string {
-  return `/api/media/${key}`;
+  return `${S3_PUBLIC_URL}/${key}`;
 }
 
 export async function ensureMediaDir(): Promise<void> {
@@ -90,8 +93,7 @@ export async function ensureMediaDir(): Promise<void> {
 }
 
 /**
- * Streams an upload to disk in chunks (never buffers a large video fully in
- * memory) and validates type + size against the server-side limits.
+ * Загружает файл в Selectel S3 и возвращает ключ.
  */
 export async function writeMedia(opts: {
   file: File;
@@ -101,8 +103,7 @@ export async function writeMedia(opts: {
 }): Promise<{ key: string; size: number; mime: string; kind: ReturnType<typeof mediaKind> }> {
   const { file, ownerId, maxBytes } = opts;
   const allowed = opts.allowed ?? ALLOWED_MIME;
-  
-  // ИСПРАВЛЕНИЕ: отбрасываем параметры вроде ";codecs=opus", чтобы "audio/webm;codecs=opus" стало "audio/webm"
+
   const mime = file.type.toLowerCase().split(";")[0].trim();
 
   if (!allowed.includes(mime)) {
@@ -113,65 +114,42 @@ export async function writeMedia(opts: {
   }
   if (file.size === 0) throw new ApiError(422, "empty_file", "The selected file is empty");
 
-  const stream = file.stream();
-  const reader = stream.getReader();
-  const headerChunks: Uint8Array[] = [];
-  let headerSize = 0;
-  const first = await reader.read();
-  if (first.value) {
-    headerChunks.push(first.value);
-    headerSize += first.value.byteLength;
-  }
-  const header = Buffer.concat(headerChunks, headerSize);
-  if (!sniff(header, mime)) {
+  const buffer = Buffer.from(await file.arrayBuffer());
+  if (!sniff(buffer, mime)) {
     throw new ApiError(415, "content_mismatch", "File content does not match its declared type");
   }
 
-  await ensureMediaDir();
   const ext = EXT[mime] ?? "bin";
-  // ИСПРАВЛЕНИЕ: файлы теперь сохраняются прямо в uploads, без подпапки с ID
   const key = `${ownerId.slice(0, 8)}-${randomUUID()}.${ext}`;
-  const absolute = path.join(MEDIA_ROOT, key);
 
-  // Write header then pipe the remainder without loading it into memory.
-  const { createWriteStream } = await import("node:fs");
-  const out = createWriteStream(absolute);
-  try {
-    await new Promise<void>((resolve, reject) => {
-      out.on("error", reject);
-      out.on("finish", resolve);
-      out.write(header);
-      (async () => {
-        let total = headerSize;
-        for (;;) {
-          const chunk = await reader.read();
-          if (chunk.done) break;
-          if (chunk.value) {
-            total += chunk.value.byteLength;
-            if (total > maxBytes) {
-              reject(new ApiError(413, "file_too_large", "Upload exceeded the size limit"));
-              break;
-            }
-            if (!out.write(chunk.value as unknown as Buffer)) {
-              await new Promise<void>((resolve) => out.once("drain", () => resolve()));
-            }
-          }
-        }
-        out.end();
-      })().catch(reject);
-    });
-  } catch (error) {
-    out.destroy();
-    await unlink(absolute).catch(() => undefined);
-    throw error;
-  } finally {
-    reader.releaseLock?.();
-  }
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      Body: buffer,
+      ContentType: mime,
+      ACL: "public-read",
+    }),
+  );
 
-  const info = await stat(absolute);
-  return { key, size: info.size, mime, kind: mediaKind(mime) };
+  return { key, size: file.size, mime, kind: mediaKind(mime) };
 }
 
+/**
+ * Удаляет файл из S3.
+ */
+export async function deleteMedia(key: string): Promise<void> {
+  try {
+    await s3Client.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Оставлены для совместимости со старым кодом (локальная разработка).
+ * В production файлы отдаются из S3 напрямую.
+ */
 export function absoluteMediaPath(key: string): string {
   const resolved = path.join(MEDIA_ROOT, key);
   if (!resolved.startsWith(MEDIA_ROOT)) throw new ApiError(400, "invalid_key", "Invalid media key");
@@ -188,9 +166,6 @@ export async function readMediaFile(key: string): Promise<{ size: number; path: 
   }
 }
 
-/**
- * Builds a streaming response with HTTP Range support so long videos can seek.
- */
 export async function streamMedia(opts: {
   key: string;
   mime: string;
@@ -234,14 +209,6 @@ function nodeStreamToWeb(stream: NodeJS.ReadableStream): ReadableStream<Uint8Arr
       (stream as unknown as { destroy?: () => void }).destroy?.();
     },
   });
-}
-
-export async function deleteMedia(key: string): Promise<void> {
-  try {
-    await unlink(absoluteMediaPath(key));
-  } catch {
-    /* already gone */
-  }
 }
 
 export async function writeBuffer(key: string, data: Buffer): Promise<void> {

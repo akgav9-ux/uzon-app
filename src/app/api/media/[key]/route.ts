@@ -5,12 +5,15 @@ import { getSessionUser } from "@/lib/auth";
 import { ApiError, fail, toResponse } from "@/lib/http";
 import { evaluatePrivacyRule, type PrivacyRule } from "@/lib/access";
 import { getRelation } from "@/lib/services";
-import { deleteMedia, streamMedia } from "@/lib/storage";
+import { deleteMedia } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 type Params = { params: Promise<{ key: string }> };
+
+// Базовый URL вашего S3-хранилища Selectel
+const S3_PUBLIC_URL = `${process.env.S3_ENDPOINT}/${process.env.S3_BUCKET}`;
 
 export async function GET(req: Request, { params }: Params) {
   try {
@@ -22,15 +25,20 @@ export async function GET(req: Request, { params }: Params) {
     const viewer = await getSessionUser(req);
     await assertCanAccessMedia(row, viewer?.id ?? null, viewer?.role ?? "user");
 
+    // Если у файла есть внешний URL (например, старые файлы), перенаправляем на него
     if (row.remoteUrl) {
       return new Response(null, {
         status: 302,
         headers: { Location: row.remoteUrl, "Cache-Control": "private, max-age=300" },
       });
     }
-    const response = await streamMedia({ key: row.key, mime: row.mime, rangeHeader: req.headers.get("range") });
-    if (!response) return fail(410, "file_missing", "The stored file is no longer available");
-    return response;
+
+    // ИСПРАВЛЕНИЕ: Вместо streamMedia (чтения с диска) перенаправляем на S3
+    const publicUrl = `${S3_PUBLIC_URL}/${row.key}`;
+    return new Response(null, {
+      status: 302,
+      headers: { Location: publicUrl, "Cache-Control": "public, max-age=3600" },
+    });
   } catch (error) {
     return toResponse(error);
   }
