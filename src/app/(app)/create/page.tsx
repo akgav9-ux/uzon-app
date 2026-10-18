@@ -30,6 +30,9 @@ export default function CreatePage() {
   const [previews, setPreviews] = useState<string[]>([]);
   const [mediaInfo, setMediaInfo] = useState<{ durationMs: number; width: number; height: number } | null>(null);
   const [channelId, setChannelId] = useState("");
+  const [posterFile, setPosterFile] = useState<File | null>(null);
+  const [posterPreview, setPosterPreview] = useState<string | null>(null);
+  const [frames, setFrames] = useState<string[]>([]); // Кадры из видео
   const abortRef = useRef<AbortController | null>(null);
 
   const config = useQuery({ queryKey: qk.config, queryFn: () => get<{ config: { clipMaxSeconds: number; videoMaxMb: number; imageMaxMb: number } }>("/api/config") });
@@ -37,7 +40,13 @@ export default function CreatePage() {
   const limits = config.data?.config;
   const postableChannels = (channels.data?.conversations ?? []).filter((c) => c.myRole === "owner" || c.myRole === "admin");
 
-  useEffect(() => () => previews.forEach((url) => URL.revokeObjectURL(url)), [previews]);
+  useEffect(() => {
+    return () => {
+      previews.forEach((url) => URL.revokeObjectURL(url));
+      if (posterPreview) URL.revokeObjectURL(posterPreview);
+      frames.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [previews, posterPreview, frames]);
 
   const reset = () => {
     setFiles([]);
@@ -48,6 +57,45 @@ export default function CreatePage() {
     setTitle("");
     setDescription("");
     setHashtags("");
+    setPosterFile(null);
+    setPosterPreview(null);
+    setFrames([]);
+  };
+
+  // Генерация кадров из видео
+  const generateFrames = (file: File) => {
+    return new Promise<string[]>((resolve) => {
+      const video = document.createElement("video");
+      video.src = URL.createObjectURL(file);
+      video.muted = true;
+      video.playsInline = true;
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      const frames: string[] = [];
+      let time = 0;
+      const duration = video.duration || 10; // fallback
+
+      video.onloadedmetadata = () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      };
+
+      video.onseeked = () => {
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          frames.push(canvas.toDataURL("image/jpeg", 0.7));
+        }
+        time += duration / 4;
+        if (time < duration && frames.length < 4) {
+          video.currentTime = time;
+        } else {
+          URL.revokeObjectURL(video.src);
+          resolve(frames);
+        }
+      };
+
+      video.currentTime = 0;
+    });
   };
 
   const probeVideo = (file: File) =>
@@ -62,6 +110,29 @@ export default function CreatePage() {
       element.onerror = () => resolve();
       element.src = url;
     });
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(event.target.files ?? []);
+    if (!selected.length) return;
+    setFiles(selected);
+    setPreviews(selected.map((file) => URL.createObjectURL(file)));
+    setFrames([]);
+    setPosterFile(null);
+    setPosterPreview(null);
+    if (mode !== "photo") {
+      await probeVideo(selected[0]!);
+      const generated = await generateFrames(selected[0]!);
+      setFrames(generated);
+    }
+  };
+
+  const selectFrame = async (dataUrl: string) => {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const file = new File([blob], "poster.jpg", { type: "image/jpeg" });
+    setPosterFile(file);
+    setPosterPreview(dataUrl);
+  };
 
   const publish = useMutation({
     mutationFn: async () => {
@@ -101,13 +172,21 @@ export default function CreatePage() {
           signal: abortRef.current.signal,
           onProgress: (percent) => setProgress(Math.round(percent * 0.85)),
         });
+
+        let posterKey: string | undefined;
+        if (posterFile) {
+          const uploadedPoster = await uploadMedia(posterFile, { purpose: "image" });
+          posterKey = uploadedPoster.media.key;
+        }
+
         setProgress(90);
         const payload = await postApi<{ video: { id: string; kind: string } }>("/api/videos", {
           title: title.trim() || file.name,
           description,
           category,
-          kind: mode === "clip" ? "clip" : "long", // <-- ИСПРАВЛЕНО: "video" -> "long"
+          kind: mode === "clip" ? "clip" : "long",
           mediaId: uploaded.media.id,
+          posterKey,
           hashtags: hashtags.split(/[\s,]+/).map((tag) => tag.replace(/^#/, "")).filter(Boolean).slice(0, 12),
           durationMs: mediaInfo?.durationMs,
           audience,
@@ -197,15 +276,8 @@ export default function CreatePage() {
                 type="file"
                 accept={mode === "photo" ? "image/*" : "video/*"}
                 multiple={mode === "photo"}
-                capture={mode === "clip" ? "environment" : undefined}
                 className="hidden"
-                onChange={async (event) => {
-                  const selected = Array.from(event.target.files ?? []);
-                  if (!selected.length) return;
-                  setFiles(selected);
-                  setPreviews(selected.map((file) => URL.createObjectURL(file)));
-                  if (mode !== "photo") await probeVideo(selected[0]!);
-                }}
+                onChange={handleFileChange}
               />
               <label
                 htmlFor="uzon-file"
@@ -255,6 +327,57 @@ export default function CreatePage() {
                   </Select>
                 </Field>
               </div>
+
+              {/* Выбор обложки */}
+              <Field label="Обложка видео (превью)">
+                {frames.length > 0 && (
+                  <div className="mb-3 flex gap-2 overflow-x-auto">
+                    {frames.map((frame, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => selectFrame(frame)}
+                        className={cn(
+                          "shrink-0 overflow-hidden rounded-lg border-2 transition",
+                          posterPreview === frame ? "border-brand" : "border-transparent hover:border-brand/50"
+                        )}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={frame} alt={`frame ${idx + 1}`} className="h-16 w-24 object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-3">
+                  {posterPreview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={posterPreview} alt="preview" className="h-20 w-32 rounded-lg object-cover" />
+                  ) : (
+                    <div className="flex h-20 w-32 items-center justify-center rounded-lg bg-surface2 text-xs text-muted">
+                      Нет обложки
+                    </div>
+                  )}
+                  <div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      id="poster-file"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setPosterFile(file);
+                          setPosterPreview(URL.createObjectURL(file));
+                        }
+                      }}
+                    />
+                    <Button type="button" variant="secondary" size="sm" onClick={() => document.getElementById("poster-file")?.click()}>
+                      Загрузить свою
+                    </Button>
+                  </div>
+                </div>
+              </Field>
+
               {mode === "video" && <p className="text-[11px] text-muted">{t("video.processingNote")}</p>}
             </>
           )}
