@@ -31,6 +31,7 @@ export function VideoCard({ video, layout = "grid" }: { video: VideoPayload; lay
       toast(t("common.delete"), "success");
       queryClient.invalidateQueries({ queryKey: ["videos"] });
       queryClient.invalidateQueries({ queryKey: ["feed"] });
+      queryClient.invalidateQueries({ queryKey: qk.profile(video.owner.username) });
     },
     onError: (error: Error) => toast(error.message, "error"),
   });
@@ -82,7 +83,7 @@ export function VideoCard({ video, layout = "grid" }: { video: VideoPayload; lay
         </div>
       </Link>
       {video.isMine && (
-        <div className="absolute right-1 top-1 opacity-0 transition group-hover:opacity-100">
+        <div className="absolute right-1 top-1 z-10 opacity-100 transition lg:opacity-0 lg:group-hover:opacity-100">
           <Menu
             trigger={({ toggle }) => (
               <IconButton label={t("common.edit")} onClick={toggle} className="bg-black/50 text-white hover:bg-black/70">
@@ -200,6 +201,7 @@ export function VideoPlayer({
       toast(t("common.delete"), "success");
       queryClient.invalidateQueries({ queryKey: ["videos"] });
       queryClient.invalidateQueries({ queryKey: ["feed"] });
+      queryClient.invalidateQueries({ queryKey: qk.profile(video.owner.username) });
     },
     onError: (error: Error) => toast(error.message, "error"),
   });
@@ -267,7 +269,7 @@ export function VideoPlayer({
           </button>
         )}
         {video.isMine && (
-          <div className="absolute right-2 top-2 z-10">
+          <div className="absolute right-2 top-2 z-10 opacity-100 transition lg:opacity-0 lg:group-hover:opacity-100">
             <Menu
               trigger={({ toggle }) => (
                 <IconButton label={t("common.edit")} onClick={toggle} className="bg-black/50 text-white hover:bg-black/70">
