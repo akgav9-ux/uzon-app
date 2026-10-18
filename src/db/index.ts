@@ -15,6 +15,11 @@ export const pool =
   globalForDb.__arenaNextJsPostgresqlPool ??
   new Pool({
     connectionString: databaseUrl,
+    // ИСПРАВЛЕНИЕ: ограничиваем количество соединений для serverless (Vercel)
+    max: 1,
+    // ИСПРАВЛЕНИЕ: отключаем prepared statements для работы с пулером Supabase
+    // (иначе Vercel теряет контекст между запросами)
+    statement_timeout: 10000,
   });
 
 if (process.env.NODE_ENV !== "production") {
