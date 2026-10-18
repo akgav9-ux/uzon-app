@@ -53,8 +53,8 @@ export const del = <T>(path: string, body?: unknown) =>
   api<T>(path, { method: "DELETE", body: body === undefined ? undefined : JSON.stringify(body) });
 export const get = <T>(path: string) => api<T>(path, { method: "GET" });
 
-/** Upload with real progress + cancel support (XHR is still the only way to get upload progress). */
-export function uploadMedia(
+/** Загрузка напрямую в S3 (Selectel) через presigned URL. */
+export async function uploadMedia(
   file: File,
   opts: {
     purpose: "image" | "video" | "audio" | "file" | "avatar" | "cover" | "story" | "clip";
@@ -63,29 +63,54 @@ export function uploadMedia(
     signal?: AbortSignal;
   },
 ): Promise<{ media: { id: string; key: string; url: string; kind: string; mime: string; size: number } }> {
+  // 1. Определяем расширение по MIME
+  const mime = file.type.toLowerCase().split(";")[0].trim();
+  const extMap: Record<string, string> = {
+    "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif",
+    "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
+    "audio/mpeg": "mp3", "audio/webm": "weba", "audio/ogg": "ogg", "audio/mp4": "m4a", "audio/wav": "wav",
+    "application/pdf": "pdf", "text/plain": "txt", "application/zip": "zip",
+  };
+  const ext = extMap[mime] ?? "bin";
+
+  // 2. Получаем presigned URL от нашего API
+  const { presignedUrl, key, mediaId } = await post<{ presignedUrl: string; key: string; mediaId: string }>(
+    "/api/upload/presigned",
+    { contentType: mime, ext, purpose: opts.purpose, visibility: opts.visibility }
+  );
+
+  // 3. Загружаем файл напрямую в S3 (с прогрессом)
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    const form = new FormData();
-    form.append("file", file);
-    form.append("purpose", opts.purpose);
-    if (opts.visibility) form.append("visibility", opts.visibility);
-    xhr.open("POST", "/api/media");
+    xhr.open("PUT", presignedUrl);
+    xhr.setRequestHeader("Content-Type", mime);
+    
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) opts.onProgress?.(Math.round((event.loaded / event.total) * 100));
     };
-    xhr.onload = () => {
-      try {
-        const data = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
-        else reject(new ClientApiError(xhr.status, data?.error?.code ?? "upload_failed", data?.error?.message ?? "Upload failed"));
-      } catch {
-        reject(new ClientApiError(xhr.status, "upload_failed", "Upload failed"));
+
+    xhr.onload = async () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        // Файл загружен, возвращаем данные
+        resolve({
+          media: {
+            id: mediaId,
+            key,
+            url: `/api/media/${key}`,
+            kind: opts.purpose === "image" ? "image" : opts.purpose === "video" || opts.purpose === "clip" ? "video" : "file",
+            mime,
+            size: file.size,
+          },
+        });
+      } else {
+        reject(new ClientApiError(xhr.status, "upload_failed", "Upload to S3 failed"));
       }
     };
+
     xhr.onerror = () => reject(new ClientApiError(0, "network_error", "Network error during upload"));
     xhr.onabort = () => reject(new ClientApiError(0, "aborted", "Upload cancelled"));
     opts.signal?.addEventListener("abort", () => xhr.abort());
-    xhr.send(form);
+    xhr.send(file);
   });
 }
 
