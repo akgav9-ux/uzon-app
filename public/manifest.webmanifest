@@ -1,12 +1,17 @@
+
 {
+  "id": "/",
   "name": "UZON",
   "short_name": "UZON",
   "description": "Социальная платформа: мессенджер, клипы, видео и сторис.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#10121B",
+  "theme_color": "#5C33F6",
   "orientation": "portrait",
+  "lang": "ru",
+  "categories": ["social"],
   "icons": [
     {
       "src": "/icon-192x192.png",
@@ -24,7 +29,7 @@
       "src": "/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "maskable" 
+      "purpose": "maskable"
     }
   ]
 }
