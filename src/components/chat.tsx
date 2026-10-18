@@ -21,7 +21,7 @@ import {
   Video as VideoIcon,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "@/components/providers";
 import {
   Avatar,
@@ -312,6 +312,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const lastCountRef = useRef(0);
+  const initialScrollDoneRef = useRef(false);
 
   // refs аудио
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -331,7 +332,6 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
 
   // общий флаг «отменено»
   const cancelledRecordRef = useRef(false);
-
   const fileRef = useRef<HTMLInputElement>(null);
 
   const detail = useQuery({
@@ -339,7 +339,6 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     queryFn: () => get<{ conversation: ConversationPayload; myRole: string; members: MemberRow[] }>(`/api/conversations/${conversationId}`),
   });
   
-  // Убран частый refetchInterval, добавлен staleTime чтобы не дергать ленту
   const messagesQuery = useQuery({
     queryKey: qk.messages(conversationId),
     queryFn: () => get<{ messages: MessagePayload[] }>(`/api/conversations/${conversationId}/messages?limit=40`),
@@ -347,23 +346,30 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     staleTime: 2000,
   });
 
-  // Умный скролл — не дергаем если пользователь листает историю
-  useEffect(() => {
+  // Умный скролл
+  useLayoutEffect(() => {
     const list = messagesQuery.data?.messages ?? [];
     const prev = lastCountRef.current;
     lastCountRef.current = list.length;
-    if (list.length === prev) return;
 
     const el = messagesContainerRef.current;
     if (!el) return;
 
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distanceFromBottom < 200) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!initialScrollDoneRef.current && list.length > 0) {
+      bottomRef.current?.scrollIntoView({ behavior: "instant" });
+      initialScrollDoneRef.current = true;
+      return;
+    }
+
+    if (list.length > prev) {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (distanceFromBottom < 300) {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
     }
   }, [messagesQuery.data?.messages.length]);
 
-  // присваиваем srcObject, когда <video> уже в DOM
+  // Присваиваем srcObject
   useEffect(() => {
     if (recordingVideo && videoPreviewRef.current && currentStreamRef.current) {
       videoPreviewRef.current.srcObject = currentStreamRef.current;
@@ -372,7 +378,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     }
   }, [recordingVideo]);
 
-  // cleanup
+  // Cleanup
   useEffect(() => {
     return () => {
       if (recordTimerRef.current) window.clearInterval(recordTimerRef.current);
@@ -387,8 +393,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const send = useMutation({
     mutationFn: (payload: Record<string, unknown>) => postApi(`/api/conversations/${conversationId}/messages`, payload),
     onSuccess: () => {
-      setText("");
-      setReplyTo(null);
+      setText(""); setReplyTo(null);
       queryClient.invalidateQueries({ queryKey: qk.messages(conversationId) });
       queryClient.invalidateQueries({ queryKey: qk.conversations });
     },
@@ -418,13 +423,9 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         kind,
         conversationId,
       }),
-    onSuccess: (data) => {
-      window.location.href = `/calls/${data.call.id}`;
-    },
+    onSuccess: (data) => { window.location.href = `/calls/${data.call.id}`; },
     onError: (error: Error) => toast(error.message, "error"),
   });
-
-  /* ----------------------------- АУДИО ----------------------------- */
 
   const startRecording = async () => {
     if (recording) return;
@@ -433,12 +434,8 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
-
-      // визуализация уровня
       try {
-        const Ctx: typeof AudioContext =
-          window.AudioContext ||
-          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const Ctx: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext;
         const ctx = new Ctx();
         audioCtxRef.current = ctx;
         const source = ctx.createMediaStreamSource(stream);
@@ -449,54 +446,27 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         const tick = () => {
           analyser.getByteTimeDomainData(data);
           let sum = 0;
-          for (let i = 0; i < data.length; i++) {
-            const v = (data[i] - 128) / 128;
-            sum += v * v;
-          }
-          const rms = Math.sqrt(sum / data.length);
-          setAudioLevel(Math.min(1, rms * 4));
+          for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
+          setAudioLevel(Math.min(1, Math.sqrt(sum / data.length) * 4));
           analyserRafRef.current = requestAnimationFrame(tick);
         };
         tick();
-      } catch {
-        /* необязательно */
-      }
-
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/mp4")
-          ? "audio/mp4"
-          : "audio/webm";
-
+      } catch {}
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "audio/webm";
       const recorder = new MediaRecorder(stream, { mimeType: mime });
       chunksRef.current = [];
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) chunksRef.current.push(event.data);
-      };
+      recorder.ondataavailable = (event) => { if (event.data && event.data.size > 0) chunksRef.current.push(event.data); };
       recorder.onstop = async () => {
         audioStreamRef.current?.getTracks().forEach((tr) => tr.stop());
         audioStreamRef.current = null;
-        if (audioCtxRef.current) {
-          audioCtxRef.current.close().catch(() => {});
-          audioCtxRef.current = null;
-        }
-        if (analyserRafRef.current) {
-          cancelAnimationFrame(analyserRafRef.current);
-          analyserRafRef.current = null;
-        }
-        if (recordTimerRef.current) {
-          window.clearInterval(recordTimerRef.current);
-          recordTimerRef.current = null;
-        }
+        if (audioCtxRef.current) { audioCtxRef.current.close().catch(() => {}); audioCtxRef.current = null; }
+        if (analyserRafRef.current) { cancelAnimationFrame(analyserRafRef.current); analyserRafRef.current = null; }
+        if (recordTimerRef.current) { window.clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
         setAudioLevel(0);
-
         if (cancelledRecordRef.current || chunksRef.current.length === 0) {
-          chunksRef.current = [];
-          setRecording(false);
-          setRecordSeconds(0);
+          chunksRef.current = []; setRecording(false); setRecordSeconds(0);
           return;
         }
-
         const ext = mime.includes("mp4") ? "m4a" : "webm";
         const blob = new Blob(chunksRef.current, { type: mime });
         const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: blob.type });
@@ -507,20 +477,14 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         } catch (error) {
           toast(error instanceof Error ? error.message : t("create.uploadFailed"), "error");
         } finally {
-          setUploading(false);
-          setRecording(false);
-          setRecordSeconds(0);
+          setUploading(false); setRecording(false); setRecordSeconds(0);
         }
       };
-
       recorderRef.current = recorder;
       recorder.start(250);
       recordingStartAtRef.current = Date.now();
-      setRecording(true);
-      setRecordSeconds(0);
-      recordTimerRef.current = window.setInterval(() => {
-        setRecordSeconds(Math.floor((Date.now() - recordingStartAtRef.current) / 1000));
-      }, 200);
+      setRecording(true); setRecordSeconds(0);
+      recordTimerRef.current = window.setInterval(() => setRecordSeconds(Math.floor((Date.now() - recordingStartAtRef.current) / 1000)), 200);
     } catch {
       toast(t("call.permissionDenied"), "error");
       setRecording(false);
@@ -531,77 +495,39 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
 
   const stopRecording = (cancelled = false) => {
     cancelledRecordRef.current = cancelled;
-    if (recordTimerRef.current) {
-      window.clearInterval(recordTimerRef.current);
-      recordTimerRef.current = null;
-    }
+    if (recordTimerRef.current) { window.clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
     const mr = recorderRef.current;
     recorderRef.current = null;
-    if (mr && mr.state !== "inactive") {
-      try {
-        mr.stop();
-      } catch {
-        /* ignore */
-      }
-    }
+    if (mr && mr.state !== "inactive") { try { mr.stop(); } catch {} }
   };
-
-  /* ----------------------------- ВИДЕО ----------------------------- */
 
   const startVideoRecording = async () => {
     if (recordingVideo) return;
     cancelledRecordRef.current = false;
     setRequestingCam(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
-        audio: true,
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
       currentStreamRef.current = stream;
-
-      // Сначала включаем рендер превью, затем ждём кадр — srcObject выставит useEffect
-      setRecordingVideo(true);
-      setVideoSeconds(0);
-
+      setRecordingVideo(true); setVideoSeconds(0);
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-
       if (videoPreviewRef.current) {
         videoPreviewRef.current.srcObject = stream;
         const p = videoPreviewRef.current.play();
         if (p && typeof p.catch === "function") p.catch(() => {});
       }
-
-      const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
-        ? "video/webm;codecs=vp9,opus"
-        : MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
-          ? "video/webm;codecs=vp8,opus"
-          : MediaRecorder.isTypeSupported("video/mp4")
-            ? "video/mp4"
-            : "video/webm";
-
+      const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" : MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus") ? "video/webm;codecs=vp8,opus" : MediaRecorder.isTypeSupported("video/mp4") ? "video/mp4" : "video/webm";
       const recorder = new MediaRecorder(stream, { mimeType: mime });
       videoChunksRef.current = [];
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) videoChunksRef.current.push(event.data);
-      };
+      recorder.ondataavailable = (event) => { if (event.data && event.data.size > 0) videoChunksRef.current.push(event.data); };
       recorder.onstop = async () => {
-        // Убиваем поток ТОЛЬКО после того как финальный dataavailable уже в chunks
         stream.getTracks().forEach((tr) => tr.stop());
         if (videoPreviewRef.current) videoPreviewRef.current.srcObject = null;
         currentStreamRef.current = null;
-
-        if (videoTimerRef.current) {
-          window.clearInterval(videoTimerRef.current);
-          videoTimerRef.current = null;
-        }
-
+        if (videoTimerRef.current) { window.clearInterval(videoTimerRef.current); videoTimerRef.current = null; }
         if (cancelledRecordRef.current || videoChunksRef.current.length === 0) {
-          videoChunksRef.current = [];
-          setRecordingVideo(false);
-          setVideoSeconds(0);
+          videoChunksRef.current = []; setRecordingVideo(false); setVideoSeconds(0);
           return;
         }
-
         const ext = mime.includes("mp4") ? "mp4" : "webm";
         const blob = new Blob(videoChunksRef.current, { type: mime });
         const file = new File([blob], `video-note-${Date.now()}.${ext}`, { type: blob.type });
@@ -612,19 +538,15 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         } catch (error) {
           toast(error instanceof Error ? error.message : t("create.uploadFailed"), "error");
         } finally {
-          setUploading(false);
-          setRecordingVideo(false);
-          setVideoSeconds(0);
+          setUploading(false); setRecordingVideo(false); setVideoSeconds(0);
         }
       };
-
       videoRecorderRef.current = recorder;
       recorder.start(1000);
       videoTimerRef.current = window.setInterval(() => setVideoSeconds((s) => s + 1), 1000);
     } catch {
       toast("Нет доступа к камере", "error");
-      setRecordingVideo(false);
-      setVideoSeconds(0);
+      setRecordingVideo(false); setVideoSeconds(0);
       currentStreamRef.current?.getTracks().forEach((tr) => tr.stop());
       currentStreamRef.current = null;
     } finally {
@@ -634,35 +556,20 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
 
   const stopVideoRecording = async (cancelled = false) => {
     cancelledRecordRef.current = cancelled;
-    if (videoTimerRef.current) {
-      window.clearInterval(videoTimerRef.current);
-      videoTimerRef.current = null;
-    }
+    if (videoTimerRef.current) { window.clearInterval(videoTimerRef.current); videoTimerRef.current = null; }
     const mr = videoRecorderRef.current;
     videoRecorderRef.current = null;
     if (!mr || mr.state === "inactive") return;
-
     const finalChunk = new Promise<void>((resolve) => {
-      mr.addEventListener(
-        "dataavailable",
-        (e) => {
-          if (e.data && e.data.size > 0) videoChunksRef.current.push(e.data);
-          resolve();
-        },
-        { once: true },
-      );
+      mr.addEventListener("dataavailable", (e) => {
+        if (e.data && e.data.size > 0) videoChunksRef.current.push(e.data);
+        resolve();
+      }, { once: true });
       setTimeout(resolve, 400);
     });
-
-    try {
-      mr.stop();
-    } catch {
-      /* ignore */
-    }
+    try { mr.stop(); } catch {}
     await finalChunk;
   };
-
-  /* ----------------------------- RENDER ----------------------------- */
 
   if (detail.isLoading || messagesQuery.isLoading) {
     return <div className="space-y-2">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>;
@@ -675,293 +582,163 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const canPost = conversation.kind !== "channel" || conversation.myRole === "owner" || conversation.myRole === "admin" || !conversation.onlyAdminsCanPost;
 
   return (
-    <div className="flex h-[calc(100dvh-13rem)] flex-col overflow-hidden rounded-2xl border border-line bg-surface md:h-[calc(100dvh-7.5rem)]">
-      <header className="flex items-center gap-2 border-b border-line px-3 py-2.5">
-        {onBack && (
-          <IconButton label={t("common.back")} onClick={onBack}>
-            <ArrowLeft className="h-4 w-4" />
-          </IconButton>
-        )}
-        <Avatar name={conversation.title ?? "UZON"} url={conversation.avatarUrl} size={38} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-ink">{conversation.title ?? t("chat.direct")}</p>
-          <p className="truncate text-[11px] text-muted">
-            {conversation.kind === "direct" ? conversation.peer?.username ?? "" : `${conversation.membersCount} ${t("chat.members").toLowerCase()}`}
-            {conversation.kind === "channel" && ` · ${t("chat.channel")}`}
-          </p>
-        </div>
-        {conversation.kind === "direct" && conversation.peer && (
-          <>
-            <IconButton label={t("call.audio")} onClick={() => call.mutate("audio")}>
-              <Phone className="h-4 w-4" />
+    <>
+      <div className="fixed inset-x-0 top-[64px] bottom-[64px] z-40 flex flex-col overflow-hidden bg-surface md:static md:h-[calc(100dvh-7.5rem)] md:rounded-2xl md:border md:border-line">
+        
+        <header className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-3 py-2.5">
+          {onBack && (
+            <IconButton label={t("common.back")} onClick={onBack}>
+              <ArrowLeft className="h-4 w-4" />
             </IconButton>
-            <IconButton label={t("call.video")} onClick={() => call.mutate("video")}>
-              <VideoIcon className="h-4 w-4" />
-            </IconButton>
-          </>
-        )}
-        <IconButton label={t("chat.info")} onClick={() => setInfoOpen(true)}>
-          <Info className="h-4 w-4" />
-        </IconButton>
-      </header>
-
-      {pinned && (
-        <div className="flex items-center gap-2 border-b border-line bg-brandsoft px-3 py-1.5 text-[11px] text-brand">
-          <Pin className="h-3 w-3" />
-          <span className="truncate">{pinned.text ?? t("chat.pin")}</span>
-        </div>
-      )}
-
-      <div ref={messagesContainerRef} className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
-        {messages.length === 0 && <EmptyState title={t("chat.empty")} description={t("chat.write")} />}
-        {messages.map((message) => (
-          <MessageBubble
-            key={message.id}
-            message={message}
-            onReply={() => setReplyTo(message)}
-            onReact={(emoji) => react.mutate({ id: message.id, emoji })}
-            onPin={() => pin.mutate({ id: message.id, action: message.pinned ? "unpin" : "pin" })}
-            onDelete={() => remove.mutate(message.id)}
-            onReport={() => setReportTarget(message)}
-            canManage={detail.data!.myRole === "owner" || detail.data!.myRole === "admin" || Boolean(user && user.role !== "user")}
-            showAuthor={conversation.kind !== "direct"}
-          />
-        ))}
-        <div ref={bottomRef} />
-      </div>
-
-      {replyTo && (
-        <div className="flex items-center gap-2 border-t border-line bg-surface2 px-3 py-2 text-xs">
-          <ArrowLeft className="h-3.5 w-3.5 rotate-180 text-brand" />
-          <span className="min-w-0 flex-1 truncate text-muted">{replyTo.text ?? replyTo.media?.kind}</span>
-          <IconButton label={t("common.cancel")} onClick={() => setReplyTo(null)}>
-            <X className="h-3.5 w-3.5" />
+          )}
+          <Avatar name={conversation.title ?? "UZON"} url={conversation.avatarUrl} size={38} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-ink">{conversation.title ?? t("chat.direct")}</p>
+            <p className="truncate text-[11px] text-muted">
+              {conversation.kind === "direct" ? conversation.peer?.username ?? "" : `${conversation.membersCount} ${t("chat.members").toLowerCase()}`}
+              {conversation.kind === "channel" && ` · ${t("chat.channel")}`}
+            </p>
+          </div>
+          {conversation.kind === "direct" && conversation.peer && (
+            <>
+              <IconButton label={t("call.audio")} onClick={() => call.mutate("audio")}>
+                <Phone className="h-4 w-4" />
+              </IconButton>
+              <IconButton label={t("call.video")} onClick={() => call.mutate("video")}>
+                <VideoIcon className="h-4 w-4" />
+              </IconButton>
+            </>
+          )}
+          <IconButton label={t("chat.info")} onClick={() => setInfoOpen(true)}>
+            <Info className="h-4 w-4" />
           </IconButton>
+        </header>
+
+        {pinned && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-line bg-brandsoft px-3 py-1.5 text-[11px] text-brand">
+            <Pin className="h-3 w-3" />
+            <span className="truncate">{pinned.text ?? t("chat.pin")}</span>
+          </div>
+        )}
+
+        {/* ТОЛЬКО ЭТОТ БЛОК СКРОЛЛИТСЯ */}
+        <div ref={messagesContainerRef} className="flex-1 space-y-2 overflow-y-auto overscroll-contain px-3 py-3">
+          {messages.length === 0 && <EmptyState title={t("chat.empty")} description={t("chat.write")} />}
+          {messages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              onReply={() => setReplyTo(message)}
+              onReact={(emoji) => react.mutate({ id: message.id, emoji })}
+              onPin={() => pin.mutate({ id: message.id, action: message.pinned ? "unpin" : "pin" })}
+              onDelete={() => remove.mutate(message.id)}
+              onReport={() => setReportTarget(message)}
+              canManage={detail.data!.myRole === "owner" || detail.data!.myRole === "admin" || Boolean(user && user.role !== "user")}
+              showAuthor={conversation.kind !== "direct"}
+            />
+          ))}
+          <div ref={bottomRef} className="h-1" />
         </div>
-      )}
 
-      {canPost ? (
-        <footer className="safe-bottom border-t border-line bg-surface px-2 py-2">
-          {uploading && <p className="px-2 pb-1 text-[11px] text-muted">{t("create.uploading", { percent: "" })}</p>}
-          {requestingMic && <p className="px-2 pb-1 text-[11px] text-muted">Запрос доступа к микрофону…</p>}
-          {requestingCam && <p className="px-2 pb-1 text-[11px] text-muted">Запрос доступа к камере…</p>}
+        {replyTo && (
+          <div className="flex shrink-0 items-center gap-2 border-t border-line bg-surface2 px-3 py-2 text-xs">
+            <ArrowLeft className="h-3.5 w-3.5 rotate-180 text-brand" />
+            <span className="min-w-0 flex-1 truncate text-muted">{replyTo.text ?? replyTo.media?.kind}</span>
+            <IconButton label={t("common.cancel")} onClick={() => setReplyTo(null)}>
+              <X className="h-3.5 w-3.5" />
+            </IconButton>
+          </div>
+        )}
 
-          {/* Круглое превью камеры при записи видео (video note) */}
-          {recordingVideo && (
-            <div className="mb-2 flex justify-center">
-              <div className="relative h-56 w-56">
-                <div className="h-full w-full overflow-hidden rounded-full bg-black shadow-lg ring-4 ring-danger/60">
-                  <video
-                    ref={videoPreviewRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    className="h-full w-full object-cover"
-                    style={{ transform: "scaleX(-1)" }}
-                  />
-                </div>
+        {canPost ? (
+          <footer className="safe-bottom shrink-0 border-t border-line bg-surface px-2 py-2 relative z-10">
+            {uploading && <p className="px-2 pb-1 text-[11px] text-muted">{t("create.uploading", { percent: "" })}</p>}
+            {requestingMic && <p className="px-2 pb-1 text-[11px] text-muted">Запрос доступа к микрофону…</p>}
+            {requestingCam && <p className="px-2 pb-1 text-[11px] text-muted">Запрос доступа к камере…</p>}
 
-                <div className="absolute left-1/2 top-2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-red-500/90 px-2.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-md">
-                  <span className="relative flex h-1.5 w-1.5">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
-                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
-                  </span>
-                  {videoSeconds}s
-                </div>
-
-                <div className="absolute inset-x-0 bottom-3 z-10 flex justify-center">
-                  <span className="rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-medium text-white backdrop-blur-sm">
-                    Отпусти — отправится
-                  </span>
+            {/* Круглое превью видео в виде модалки по центру экрана */}
+            {recordingVideo && (
+              <div className="absolute bottom-[100%] left-0 right-0 mb-2 flex justify-center">
+                <div className="relative h-56 w-56">
+                  <div className="h-full w-full overflow-hidden rounded-full bg-black shadow-lg ring-4 ring-danger/60">
+                    <video ref={videoPreviewRef} autoPlay muted playsInline className="h-full w-full object-cover" style={{ transform: "scaleX(-1)" }} />
+                  </div>
+                  <div className="absolute left-1/2 top-2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-red-500/90 px-2.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-md">
+                    <span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" /></span>
+                    {videoSeconds}s
+                  </div>
+                  <div className="absolute inset-x-0 bottom-3 z-10 flex justify-center">
+                    <span className="rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-medium text-white backdrop-blur-sm">Отпусти — отправится</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Индикатор записи аудио */}
-          {recording && (
-            <div className="mb-2 flex items-center gap-3 rounded-2xl border border-danger/30 bg-danger/5 px-3 py-2">
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-danger" />
-              </span>
-              <span className="text-xs font-semibold tabular-nums text-danger">
-                {Math.floor(recordSeconds / 60)}:{String(recordSeconds % 60).padStart(2, "0")}
-              </span>
-              <div className="flex flex-1 items-center justify-center gap-[3px] overflow-hidden">
-                {Array.from({ length: 24 }).map((_, i) => (
-                  <span
-                    key={i}
-                    className="w-1 rounded-full bg-danger"
-                    style={{
-                      height: `${4 + Math.round(audioLevel * 26 * (0.4 + 0.6 * Math.abs(Math.sin(i * 0.6))))}px`,
-                      opacity: 0.4 + audioLevel * 0.6,
-                    }}
-                  />
-                ))}
+            {recording && (
+              <div className="mb-2 flex items-center gap-3 rounded-2xl border border-danger/30 bg-danger/5 px-3 py-2">
+                <span className="relative flex h-2 w-2 shrink-0"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-danger" /></span>
+                <span className="text-xs font-semibold tabular-nums text-danger">{Math.floor(recordSeconds / 60)}:{String(recordSeconds % 60).padStart(2, "0")}</span>
+                <div className="flex flex-1 items-center justify-center gap-[3px] overflow-hidden">
+                  {Array.from({ length: 24 }).map((_, i) => (
+                    <span key={i} className="w-1 rounded-full bg-danger" style={{ height: `${4 + Math.round(audioLevel * 26 * (0.4 + 0.6 * Math.abs(Math.sin(i * 0.6))))}px`, opacity: 0.4 + audioLevel * 0.6 }} />
+                  ))}
+                </div>
               </div>
-              <span className="shrink-0 text-[10px] text-muted">Отпусти — отправится</span>
-            </div>
-          )}
+            )}
 
-          <form
-            className="flex items-end gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!text.trim()) return;
-              send.mutate({ text, replyToId: replyTo?.id });
-            }}
-          >
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*,video/*,audio/*,.pdf,.txt,.zip"
-              className="hidden"
-              onChange={async (event) => {
+            <form className="flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); if (!text.trim()) return; send.mutate({ text, replyToId: replyTo?.id }); }}>
+              <input ref={fileRef} type="file" accept="image/*,video/*,audio/*,.pdf,.txt,.zip" className="hidden" onChange={async (event) => {
                 const file = event.target.files?.[0];
                 if (!file) return;
                 try {
                   setUploading(true);
-                  const purpose = file.type.startsWith("image")
-                    ? "image"
-                    : file.type.startsWith("video")
-                      ? "video"
-                      : file.type.startsWith("audio")
-                        ? "audio"
-                        : "file";
+                  const purpose = file.type.startsWith("image") ? "image" : file.type.startsWith("video") ? "video" : file.type.startsWith("audio") ? "audio" : "file";
                   const uploaded = await uploadMedia(file, { purpose });
                   await send.mutateAsync({ mediaId: uploaded.media.id, attachmentKind: purpose });
-                } catch (error) {
-                  toast(error instanceof Error ? error.message : t("create.uploadFailed"), "error");
-                } finally {
-                  setUploading(false);
-                  if (fileRef.current) fileRef.current.value = "";
+                } catch (error) { toast(error instanceof Error ? error.message : t("create.uploadFailed"), "error"); } finally {
+                  setUploading(false); if (fileRef.current) fileRef.current.value = "";
                 }
-              }}
-            />
-
-            <IconButton label={t("common.upload")} onClick={() => fileRef.current?.click()} type="button" className="mb-1">
-              <Paperclip className="h-5 w-5" />
-            </IconButton>
-
-            <div className="relative flex-1">
-              <Textarea
-                rows={1}
-                value={text}
-                onChange={(event) => setText(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    if (text.trim()) send.mutate({ text, replyToId: replyTo?.id });
-                  }
-                }}
-                placeholder={recording ? t("chat.recording", { seconds: recordSeconds }) : recordingVideo ? "Идёт запись видео…" : t("chat.write")}
-                aria-label={t("chat.write")}
-                className="max-h-28 min-h-[44px] resize-none rounded-[22px] border-0 bg-surface2 px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand/50"
-              />
-              {emojiOpen && (
-                <div className="absolute bottom-full left-0 z-20 mb-2 grid w-64 grid-cols-6 gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl">
-                  {EMOJI.map((emoji) => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      onClick={() => {
-                        setText((prev) => prev + emoji);
-                        setEmojiOpen(false);
-                      }}
-                      className="rounded p-1 text-lg hover:bg-surface2"
-                    >
-                      {emoji}
+              }} />
+              <IconButton label={t("common.upload")} onClick={() => fileRef.current?.click()} type="button" className="mb-1">
+                <Paperclip className="h-5 w-5" />
+              </IconButton>
+              <div className="relative flex-1">
+                <Textarea rows={1} value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (text.trim()) send.mutate({ text, replyToId: replyTo?.id }); }
+                }} placeholder={recording ? t("chat.recording", { seconds: recordSeconds }) : recordingVideo ? "Идёт запись видео…" : t("chat.write")} aria-label={t("chat.write")} className="max-h-28 min-h-[44px] resize-none rounded-[22px] border-0 bg-surface2 px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand/50" />
+                {emojiOpen && (
+                  <div className="absolute bottom-full left-0 z-20 mb-2 grid w-64 grid-cols-6 gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl">
+                    {EMOJI.map((emoji) => (
+                      <button key={emoji} type="button" onClick={() => { setText((prev) => prev + emoji); setEmojiOpen(false); }} className="rounded p-1 text-lg hover:bg-surface2">{emoji}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="relative mb-1 flex items-center gap-1">
+                {text.trim().length > 0 ? (
+                  <Button type="submit" size="sm" loading={send.isPending} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand p-0 transition-all hover:bg-brand/90" icon={<Send className="h-5 w-5" />} />
+                ) : (
+                  <>
+                    <button type="button" aria-label="Удерживай, чтобы записать видео" onContextMenu={(e) => e.preventDefault()} onPointerDown={(e) => { e.preventDefault(); (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId); void startVideoRecording(); }} onPointerUp={(e) => { e.preventDefault(); void stopVideoRecording(false); }} onPointerCancel={() => { void stopVideoRecording(true); }} disabled={requestingCam} className={cn("flex h-11 w-11 touch-none select-none items-center justify-center rounded-full transition-all", requestingCam && "cursor-wait opacity-60", recordingVideo ? "scale-110 bg-danger text-white" : "text-muted hover:bg-surface2 hover:text-ink")} style={{ touchAction: "none" }}>
+                      <VideoIcon className="h-5 w-5" />
                     </button>
-                  ))}
-                </div>
-              )}
-            </div>
+                    <button type="button" aria-label="Удерживай, чтобы записать голосовое" onContextMenu={(e) => e.preventDefault()} onPointerDown={(e) => { e.preventDefault(); (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId); void startRecording(); }} onPointerUp={(e) => { e.preventDefault(); stopRecording(false); }} onPointerCancel={() => stopRecording(true)} disabled={requestingMic} className={cn("flex h-11 w-11 touch-none select-none items-center justify-center rounded-full transition-all", requestingMic && "cursor-wait opacity-60", recording ? "animate-pulse bg-danger text-white" : "text-muted hover:bg-surface2 hover:text-ink")} style={{ touchAction: "none" }}>
+                      <Mic className="h-5 w-5" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </form>
+          </footer>
+        ) : (
+          <footer className="shrink-0 border-t border-line px-3 py-3 text-center text-xs text-muted">{t("chat.noPermission")}</footer>
+        )}
 
-            <div className="relative mb-1 flex items-center gap-1">
-              {text.trim().length > 0 ? (
-                <Button
-                  type="submit"
-                  size="sm"
-                  loading={send.isPending}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand p-0 transition-all hover:bg-brand/90"
-                  icon={<Send className="h-5 w-5" />}
-                />
-              ) : (
-                <>
-                  {/* ВИДЕО — hold-to-record */}
-                  <button
-                    type="button"
-                    aria-label="Удерживай, чтобы записать видео"
-                    onContextMenu={(e) => e.preventDefault()}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-                      void startVideoRecording();
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      void stopVideoRecording(false);
-                    }}
-                    onPointerCancel={() => {
-                      void stopVideoRecording(true);
-                    }}
-                    disabled={requestingCam}
-                    className={cn(
-                      "flex h-11 w-11 touch-none select-none items-center justify-center rounded-full transition-all",
-                      requestingCam && "cursor-wait opacity-60",
-                      recordingVideo ? "scale-110 bg-danger text-white" : "text-muted hover:bg-surface2 hover:text-ink",
-                    )}
-                    style={{ touchAction: "none" }}
-                  >
-                    <VideoIcon className="h-5 w-5" />
-                  </button>
-
-                  {/* АУДИО — hold-to-record */}
-                  <button
-                    type="button"
-                    aria-label="Удерживай, чтобы записать голосовое"
-                    onContextMenu={(e) => e.preventDefault()}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-                      void startRecording();
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      stopRecording(false);
-                    }}
-                    onPointerCancel={() => stopRecording(true)}
-                    disabled={requestingMic}
-                    className={cn(
-                      "flex h-11 w-11 touch-none select-none items-center justify-center rounded-full transition-all",
-                      requestingMic && "cursor-wait opacity-60",
-                      recording ? "animate-pulse bg-danger text-white" : "text-muted hover:bg-surface2 hover:text-ink",
-                    )}
-                    style={{ touchAction: "none" }}
-                  >
-                    <Mic className="h-5 w-5" />
-                  </button>
-                </>
-              )}
-            </div>
-          </form>
-        </footer>
-      ) : (
-        <footer className="border-t border-line px-3 py-3 text-center text-xs text-muted">{t("chat.noPermission")}</footer>
-      )}
-
-      {infoOpen && (
-        <ConversationInfoModal
-          conversationId={conversationId}
-          onClose={() => setInfoOpen(false)}
-          members={detail.data!.members}
-          myRole={detail.data!.myRole}
-        />
-      )}
-      {reportTarget && <ReportModal open onClose={() => setReportTarget(null)} entityType="message" entityId={reportTarget.id} />}
-      {call.isPending && <p className="px-3 py-1 text-xs text-muted">{t("call.connecting")}</p>}
-    </div>
+        {infoOpen && <ConversationInfoModal conversationId={conversationId} onClose={() => setInfoOpen(false)} members={detail.data!.members} myRole={detail.data!.myRole} />}
+        {reportTarget && <ReportModal open onClose={() => setReportTarget(null)} entityType="message" entityId={reportTarget.id} />}
+        {call.isPending && <p className="shrink-0 px-3 py-1 text-xs text-muted">{t("call.connecting")}</p>}
+      </div>
+    </>
   );
 }
 
