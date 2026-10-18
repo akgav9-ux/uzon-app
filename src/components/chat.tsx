@@ -264,12 +264,17 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const [infoOpen, setInfoOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<MessagePayload | null>(null);
   const [uploading, setUploading] = useState(false);
+  
   const bottomRef = useRef<HTMLDivElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const videoRecorderRef = useRef<MediaRecorder | null>(null);
   const videoChunksRef = useRef<Blob[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  
+  // Новые рефы для превью видео
+  const videoPreviewRef = useRef<HTMLVideoElement>(null);
+  const currentStreamRef = useRef<MediaStream | null>(null);
 
   const detail = useQuery({
     queryKey: qk.conversation(conversationId),
@@ -360,8 +365,16 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   };
 
   const startVideoRecording = async () => {
+    if (recordingVideo) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
+      currentStreamRef.current = stream;
+      
+      if (videoPreviewRef.current) {
+        videoPreviewRef.current.srcObject = stream;
+        videoPreviewRef.current.play().catch(() => {});
+      }
+
       const recorder = new MediaRecorder(stream);
       videoChunksRef.current = [];
       recorder.ondataavailable = (event) => {
@@ -369,6 +382,9 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       };
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
+        if (videoPreviewRef.current) videoPreviewRef.current.srcObject = null;
+        currentStreamRef.current = null;
+
         const mime = (recorder.mimeType || "video/webm").split(";")[0];
         const blob = new Blob(videoChunksRef.current, { type: mime });
         const file = new File([blob], `video-note-${Date.now()}.webm`, { type: blob.type });
@@ -392,6 +408,12 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       recorder.addEventListener("stop", () => window.clearInterval(timer));
     } catch {
       toast("Нет доступа к камере", "error");
+    }
+  };
+
+  const stopVideoRecording = () => {
+    if (videoRecorderRef.current && videoRecorderRef.current.state !== "inactive") {
+      videoRecorderRef.current.stop();
     }
   };
 
@@ -473,10 +495,32 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         <footer className="safe-bottom border-t border-line bg-surface px-2 py-2">
           {uploading && <p className="px-2 pb-1 text-[11px] text-muted">{t("create.uploading", { percent: "" })}</p>}
           
+          {/* Окно превью камеры при записи видео */}
           {recordingVideo && (
-            <p className="px-2 pb-1 text-[11px] text-danger animate-pulse font-medium">
-              🔴 Запись видео: {videoSeconds} сек...
-            </p>
+            <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+              <div className="relative w-full max-w-sm overflow-hidden rounded-3xl bg-black shadow-2xl ring-1 ring-white/10">
+                <div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-full bg-red-500/80 px-3 py-1 text-xs font-bold text-white backdrop-blur-md">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75"></span>
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-white"></span>
+                  </span>
+                  {videoSeconds} сек
+                </div>
+                <video
+                  ref={videoPreviewRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="h-[60vh] w-full object-cover"
+                  style={{ transform: "scaleX(-1)" }} // Зеркало для фронталки
+                />
+                <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center bg-gradient-to-t from-black/80 to-transparent p-4">
+                  <p className="text-center text-sm font-medium text-white/80">
+                    Отпустите кнопку, чтобы отправить
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
 
           <form
@@ -489,7 +533,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                 return;
               }
               if (recordingVideo) {
-                videoRecorderRef.current?.stop();
+                stopVideoRecording();
                 return;
               }
               send.mutate({ text, replyToId: replyTo?.id });
@@ -561,25 +605,32 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                   type="submit" 
                   size="sm" 
                   loading={send.isPending} 
-                  className="h-11 w-11 shrink-0 rounded-full p-0 flex items-center justify-center transition-all bg-brand hover:bg-brand/90" 
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand p-0 transition-all hover:bg-brand/90" 
                   icon={<Send className="h-5 w-5" />}
                 />
               ) : (
                 <>
+                  {/* Кнопка записи видео с удержанием */}
                   <button
                     type="button"
-                    onClick={() => (recordingVideo ? videoRecorderRef.current?.stop() : void startVideoRecording())}
-                    className={cn("flex h-11 w-11 items-center justify-center rounded-full transition-all", 
-                      recordingVideo ? "bg-danger text-white animate-pulse" : "text-muted hover:bg-surface2 hover:text-ink"
+                    onMouseDown={(e) => { e.preventDefault(); void startVideoRecording(); }}
+                    onMouseUp={(e) => { e.preventDefault(); stopVideoRecording(); }}
+                    onMouseLeave={(e) => { e.preventDefault(); stopVideoRecording(); }}
+                    onTouchStart={(e) => { e.preventDefault(); void startVideoRecording(); }}
+                    onTouchEnd={(e) => { e.preventDefault(); stopVideoRecording(); }}
+                    className={cn("flex h-11 w-11 touch-none select-none items-center justify-center rounded-full transition-all", 
+                      recordingVideo ? "scale-110 bg-danger text-white" : "text-muted hover:bg-surface2 hover:text-ink"
                     )}
                   >
                     <VideoIcon className="h-5 w-5" />
                   </button>
+                  
+                  {/* Кнопка записи аудио */}
                   <button
                     type="button"
                     onClick={() => (recording ? recorderRef.current?.stop() : void startRecording())}
-                    className={cn("flex h-11 w-11 items-center justify-center rounded-full transition-all", 
-                      recording ? "bg-danger text-white animate-pulse" : "text-muted hover:bg-surface2 hover:text-ink"
+                    className={cn("flex h-11 w-11 select-none items-center justify-center rounded-full transition-all", 
+                      recording ? "animate-pulse bg-danger text-white" : "text-muted hover:bg-surface2 hover:text-ink"
                     )}
                   >
                     <Mic className="h-5 w-5" />
@@ -784,7 +835,7 @@ function AudioPlayer({ src }: { src: string }) {
   };
 
   return (
-    <div className="mt-1 flex items-center gap-3 w-[240px] max-w-full">
+    <div className="mt-1 flex w-[240px] max-w-full items-center gap-3">
       <audio
         ref={audioRef}
         src={src}
