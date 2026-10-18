@@ -671,8 +671,8 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const canPost = conversation.kind !== "channel" || conversation.myRole === "owner" || conversation.myRole === "admin" || !conversation.onlyAdminsCanPost;
 
   return (
-    // ФИКСИРУЕМ ВЫСОТУ НА ВЕСЬ ЭКРАН, ЧТОБЫ ШАПКА И ВВОД НЕ ДВИГАЛИСЬ
-    <div className="fixed inset-0 z-40 flex h-[100dvh] w-full flex-col bg-background">
+    // ФИКСИРУЕМ ВЫСОТУ НА ВЕСЬ ЭКРАН, С УЧЕТОМ НИЖНЕГО МЕНЮ
+    <div className="fixed inset-0 z-40 flex h-[100dvh] w-full flex-col bg-background pb-[72px]">
       
       {/* Шапка (прибита к верху) */}
       <header className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-3 py-2.5">
@@ -1004,7 +1004,6 @@ function MessageBubble({
           </Link>
         )}
         
-        {/* УБРАЛИ ФОН И РАМКИ У ВИДЕО-КРУЖКОВ */}
         <div
           className={cn(
             "relative text-sm",
