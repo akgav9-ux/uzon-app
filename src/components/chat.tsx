@@ -352,8 +352,8 @@ function EmojiPanel({ tr, recent, onPick }: { tr: Tr; recent: string[]; onPick: 
   }, [q, tab, recent]);
 
   return (
-    <div className="mb-2 overflow-hidden rounded-2xl border border-line bg-surface shadow-xl shadow-black/5">
-      <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
+    <div className="mb-2 overflow-hidden rounded-2xl border border-line bg-surface shadow-lg">
+      <div className="flex items-center gap-2 border-b border-line px-2.5 py-2">
         <Search className="h-4 w-4 shrink-0 text-muted" />
         <input
           value={q}
@@ -460,8 +460,8 @@ export function ChatList({ onOpen, activeId }: { onOpen: (conversation: Conversa
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 sm:space-y-5">
-      <div className="sticky top-0 z-10 flex items-center gap-2 rounded-2xl border border-line bg-surface/95 p-2 shadow-sm backdrop-blur sm:p-3">
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
           <Input value={term} onChange={(event) => setTerm(event.target.value)} placeholder={t("chat.searchHistory")} className="rounded-full pl-9" aria-label={t("chat.searchHistory")} />
@@ -1000,7 +1000,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   /* ------------------------------- RENDER ------------------------------- */
 
   if (detail.isLoading || messagesQuery.isLoading) {
-    return <div className="space-y-2 p-3 sm:p-5">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-xl" />)}</div>;
+    return <div className="space-y-2 p-3">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>;
   }
   if (detail.isError) return <ErrorState message={t("errors.forbidden")} onRetry={() => detail.refetch()} />;
 
@@ -1011,9 +1011,9 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const hasText = text.trim().length > 0;
 
   return (
-    <div className="fixed inset-0 z-40 flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-background pb-[env(safe-area-inset-bottom)] md:static md:mx-auto md:h-full md:min-h-[560px] md:max-h-[calc(100dvh-2rem)] md:max-w-6xl md:rounded-2xl md:border md:border-line md:pb-0 md:shadow-xl">
+    <div className="fixed inset-0 z-40 flex h-[100dvh] w-full flex-col bg-background pb-[72px]">
       {/* ------------------------------- ШАПКА ------------------------------- */}
-      <header className="relative z-20 flex min-h-[64px] shrink-0 items-center gap-2 border-b border-line bg-surface/95 px-3 py-2.5 shadow-sm backdrop-blur sm:px-4 md:min-h-[72px] md:px-5">
+      <header className="relative flex shrink-0 items-center gap-2 border-b border-line bg-surface/90 px-3 py-2.5 backdrop-blur">
         <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-brand/50 to-transparent" />
         {onBack && (
           <IconButton label={t("common.back")} onClick={onBack}>
@@ -1055,7 +1055,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         <div
           ref={listRef}
           onScroll={onScroll}
-          className="h-full space-y-2 overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-4 sm:px-5 sm:py-5 md:px-8 md:py-6"
+          className="h-full space-y-1.5 overflow-y-auto overflow-x-hidden px-3 py-3"
           style={{
             backgroundImage:
               "radial-gradient(circle at 15% 8%, color-mix(in srgb, var(--brand) 9%, transparent), transparent 38%), radial-gradient(circle at 90% 85%, color-mix(in srgb, var(--brand) 7%, transparent), transparent 42%)",
@@ -1066,7 +1066,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
           {rows.map((row) =>
             row.type === "day" ? (
               <div key={`day-${row.key}`} className="sticky top-1 z-10 flex justify-center py-1">
-                <span className="rounded-full border border-line/80 bg-surface/95 px-3.5 py-1 text-[11px] font-semibold tracking-wide text-muted shadow-sm backdrop-blur">{row.label}</span>
+                <span className="rounded-full bg-surface/90 px-3 py-0.5 text-[11px] font-medium text-muted shadow-sm ring-1 ring-line backdrop-blur">{row.label}</span>
               </div>
             ) : (
               <MessageBubble
@@ -1120,11 +1120,11 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
 
       {/* ------------------------------ ВВОД ------------------------------ */}
       {canPost ? (
-        <footer className="safe-bottom z-20 shrink-0 border-t border-line/80 bg-surface/95 px-2 pb-2 pt-2 shadow-[0_-8px_24px_rgba(0,0,0,0.035)] backdrop-blur sm:px-4 sm:pb-3 md:px-5">
+        <footer className="safe-bottom shrink-0 border-t border-line bg-surface px-2 pb-2 pt-2">
           {panelOpen && !voiceActive && <EmojiPanel tr={tr} recent={recent} onPick={insertEmoji} />}
 
           <form
-            className="mx-auto flex w-full max-w-5xl items-end gap-1.5 sm:gap-2"
+            className="flex items-end gap-1.5"
             onSubmit={(event) => {
               event.preventDefault();
               submitText();
@@ -1155,7 +1155,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                 }}
               />
             ) : (
-              <div className="relative flex min-w-0 flex-1 items-end rounded-[24px] border border-line/70 bg-surface2/80 transition duration-200 focus-within:border-brand/50 focus-within:ring-2 focus-within:ring-brand/10">
+              <div className="relative flex min-w-0 flex-1 items-end rounded-[22px] bg-surface2 ring-1 ring-transparent transition focus-within:ring-brand/50">
                 <textarea
                   ref={taRef}
                   rows={1}
