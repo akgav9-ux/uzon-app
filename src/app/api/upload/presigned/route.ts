@@ -22,34 +22,37 @@ export async function POST(req: Request) {
   try {
     const user = await requireUser(req);
     const { contentType, ext, purpose, visibility } = await req.json();
-    
+
+    // ВАЖНО: нормализуем MIME (без codecs) — и подпись, и клиент должны
+    // использовать один и тот же Content-Type.
+    const normalizedType = String(contentType || "").split(";")[0].trim() || "application/octet-stream";
+
     const key = `${user.id.slice(0, 8)}-${randomUUID()}.${ext}`;
-    
-    // 1. Создаём запись в БД (пока файл ещё не загружен)
+
     const [mediaRow] = await db.insert(media).values({
       ownerId: user.id,
       key,
-      mime: contentType,
-      kind: purpose === "image" ? "image" : purpose === "video" || purpose === "clip" ? "video" : "file",
-      size: 0, // Обновится после загрузки (можно добавить отдельный роут)
+      mime: normalizedType,
+      kind: purpose === "image" ? "image" : purpose === "video" || purpose === "clip" ? "video" : purpose === "audio" ? "audio" : "file",
+      size: 0,
       visibility: visibility || "public",
       status: "ready",
     }).returning();
 
-    // 2. Генерируем presigned URL
     const command = new PutObjectCommand({
       Bucket: S3_BUCKET,
       Key: key,
-      ContentType: contentType,
-      ACL: "public-read",
+      ContentType: normalizedType, // ← тот же, что на клиенте
+      // ACL: "public-read",         // ← УБРАТЬ для Selectel
     });
 
     const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 600 });
-    
-    return NextResponse.json({ 
-      presignedUrl, 
-      key, 
-      mediaId: mediaRow.id // Возвращаем ID записи
+
+    return NextResponse.json({
+      presignedUrl,
+      key,
+      mediaId: mediaRow.id,
+      contentType: normalizedType, // ← вернуть клиенту, чтобы он поставил тот же заголовок
     });
   } catch (error) {
     console.error("Presigned URL error:", error);
