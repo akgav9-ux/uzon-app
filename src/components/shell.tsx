@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { ShareUzonButton } from "@/components/share-uzon-button";
 import {
+  
   Bell,
   Bookmark,
   Clapperboard,
@@ -58,6 +60,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const unread = useUnread();
   const searchParams = useSearchParams();
+  const isActive = (href: string) =>
+    pathname === href || pathname.startsWith(`${href}/`);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleLogout = async () => {
@@ -126,7 +130,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const staff: NavItem[] = [{ href: "/admin", icon: <ShieldAlert className="h-5 w-5" />, labelKey: "nav.admin" }];
   const all = [...primary, ...secondary, ...(user && (user.role === "admin" || user.role === "moderator") ? staff : [])];
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  const isChatOpen = pathname === "/messages" && Boolean(searchParams.get("id"));
 
   return (
     <div className="min-h-dvh bg-canvas">
@@ -155,7 +159,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
           ))}
         </nav>
-
+        {user && (
+          <div className="mt-3 px-1">
+            <ShareUzonButton />
+          </div>
+        )}
         <div className="mt-3 flex flex-col gap-1">
           {user ? (
             <>
@@ -274,14 +282,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             )}
           </div>
         </div>
-        {!navigator.onLine && <OfflineBar />}
+        <OfflineBar />
       </header>
 
       {/* Mobile menu overlay */}
       {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 md:hidden" onClick={() => setMobileMenuOpen(false)}>
+        <div className="fixed inset-0 z-40 flex h-[100dvh] w-full flex-col bg-background">
           <div
-            className="absolute left-0 top-0 h-full w-72 bg-surface p-4 shadow-xl"
+            className="absolute left-0 top-0 flex h-full w-72 flex-col overflow-y-auto bg-surface p-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-6 flex items-center justify-between">
@@ -315,6 +323,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </Link>
               ))}
             </nav>
+
+            {user && (
+              <div className="mt-3">
+                <ShareUzonButton />
+              </div>
+            )}
+
             <div className="mt-auto pt-4">
               {user ? (
                 <button
@@ -342,11 +357,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="mx-auto w-full max-w-6xl px-3 pb-24 pt-4 md:px-6 md:pb-10">{children}</div>
       </main>
 
-      {/* Mobile bottom navigation */}
-      <nav
-        className="fixed inset-x-0 bottom-0 z-40 flex items-stretch border-t border-line bg-surface/90 backdrop-blur-xl md:hidden"
-        aria-label={t("nav.home")}
-      >
+      {/* Mobile bottom navigation — скрываем внутри открытого чата */}
+{!isChatOpen && (
+  <nav
+    className="fixed inset-x-0 bottom-0 z-40 flex items-stretch border-t border-line bg-surface/90 backdrop-blur-xl md:hidden"
+    aria-label={t("nav.home")}
+  >
         {primary.map((item) => (
           <Link
             key={item.href}
@@ -365,6 +381,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
         ))}
       </nav>
+      )}
     </div>
   );
 }

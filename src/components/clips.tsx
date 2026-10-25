@@ -1,8 +1,23 @@
+
 "use client";
 
 import Link from "next/link";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Heart, MessageCircle, MoreHorizontal, Play, Send, UserPlus, Flag } from "lucide-react";
+import {
+  Bookmark,
+  Check,
+  Copy,
+  Heart,
+  MessageCircle,
+  MoreHorizontal,
+  Play,
+  Send,
+  UserPlus,
+  Flag,
+  X,
+  Share2,
+  MessageSquareShare,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "@/components/providers";
 import { Avatar, Button, EmptyState, ErrorState, IconButton, Modal, Skeleton, Textarea } from "@/components/ui";
@@ -11,10 +26,6 @@ import { get, post as postApi, qk } from "@/lib/client/api";
 import type { VideoPayload } from "@/lib/serialize";
 import { cn } from "@/lib/utils";
 
-/**
- * Fullscreen vertical clip feed. Only the intersecting clip has an active
- * <video> element playing; neighbours stay paused to bound CPU/network use.
- */
 export function ClipFeed() {
   const { t, fmt, toast, user } = useApp();
   const queryClient = useQueryClient();
@@ -26,7 +37,10 @@ export function ClipFeed() {
 
   const query = useInfiniteQuery({
     queryKey: ["clips-feed"],
-    queryFn: ({ pageParam }) => get<{ clips: VideoPayload[]; nextCursor: string | null }>(`/api/clips?limit=6${pageParam ? `&cursor=${pageParam}` : ""}`),
+    queryFn: ({ pageParam }) =>
+      get<{ clips: VideoPayload[]; nextCursor: string | null }>(
+        `/api/clips?limit=6${pageParam ? `&cursor=${pageParam}` : ""}`,
+      ),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor,
   });
@@ -49,16 +63,13 @@ export function ClipFeed() {
     return () => observer.disconnect();
   }, [clips.length]);
 
-  const goTo = useCallback(
-    (index: number) => {
-      const node = itemRefs.current[index];
-      if (node && containerRef.current) {
-        containerRef.current.scrollTo({ top: node.offsetTop, behavior: "smooth" });
-        setActiveIndex(index);
-      }
-    },
-    [],
-  );
+  const goTo = useCallback((index: number) => {
+    const node = itemRefs.current[index];
+    if (node && containerRef.current) {
+      containerRef.current.scrollTo({ top: node.offsetTop, behavior: "smooth" });
+      setActiveIndex(index);
+    }
+  }, []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -77,14 +88,19 @@ export function ClipFeed() {
   }, [activeIndex, clips.length]);
 
   if (query.isLoading) {
-    return (
-      <div className="space-y-3">
-        <Skeleton className="h-[70vh] w-full" />
-      </div>
-    );
+    return <div className="space-y-3"><Skeleton className="h-[70vh] w-full" /></div>;
   }
   if (query.isError) return <ErrorState message={t("common.error")} onRetry={() => query.refetch()} />;
-  if (!clips.length) return <EmptyState title={t("clips.empty")} description={t("clips.maxDuration", { minutes: 5 })} icon={<Play className="h-8 w-8" />} action={<Link href="/create"><Button size="sm">{t("create.clip")}</Button></Link>} />;
+  if (!clips.length) {
+    return (
+      <EmptyState
+        title={t("clips.empty")}
+        description={t("clips.maxDuration", { minutes: 5 })}
+        icon={<Play className="h-8 w-8" />}
+        action={<Link href="/create"><Button size="sm">{t("create.clip")}</Button></Link>}
+      />
+    );
+  }
 
   return (
     <>
@@ -96,9 +112,7 @@ export function ClipFeed() {
           <div
             key={clip.id}
             data-index={index}
-            ref={(node) => {
-              itemRefs.current[index] = node;
-            }}
+            ref={(node) => { itemRefs.current[index] = node; }}
             className="relative h-[calc(100dvh-9.5rem)] w-full md:h-[calc(100dvh-8rem)]"
           >
             <ClipItem
@@ -113,7 +127,11 @@ export function ClipFeed() {
                     ...old,
                     pages: old.pages.map((page) => ({
                       ...page,
-                      clips: page.clips.map((item) => (item.id === clip.id ? { ...item, likedByViewer: liked, likeCount: count } : item)),
+                      clips: page.clips.map((item) =>
+                        item.id === clip.id
+                          ? { ...item, likedByViewer: liked, likeCount: count }
+                          : item,
+                      ),
                     })),
                   };
                 });
@@ -125,9 +143,7 @@ export function ClipFeed() {
       <p className="mt-2 text-center text-[11px] text-muted">{t("clips.swipe")}</p>
       <ClipComments clip={commentsFor} onClose={() => setCommentsFor(null)} />
       {reportFor && <ReportModal open onClose={() => setReportFor(null)} entityType="video" entityId={reportFor.id} />}
-      <span className="sr-only">
-        {fmt.number(clips.length)} {t("clips.title")}
-      </span>
+      <span className="sr-only">{fmt.number(clips.length)} {t("clips.title")}</span>
     </>
   );
 }
@@ -152,6 +168,8 @@ function ClipItem({
   const [muted, setMuted] = useState(false);
   const [liked, setLiked] = useState(clip.likedByViewer);
   const [likeCount, setLikeCount] = useState(clip.likeCount);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const watched = useRef(0);
   const viewSent = useRef(false);
   const lastTick = useRef(Date.now());
@@ -194,9 +212,7 @@ function ClipItem({
             .then((result) => {
               if (result.counted) queryClient.invalidateQueries({ queryKey: qk.video(clip.id) });
             })
-            .catch(() => {
-              viewSent.current = false;
-            });
+            .catch(() => { viewSent.current = false; });
         }
       }
     }, 1000);
@@ -212,10 +228,13 @@ function ClipItem({
     },
     onError: (error: Error) => toast(error.message, "error"),
   });
+
   const saveMutation = useMutation({
     mutationFn: () => postApi(`/api/videos/${clip.id}/actions`, { action: "save" }),
     onSuccess: () => toast(t("post.saved"), "success"),
+    onError: (error: Error) => toast(error.message, "error"),
   });
+
   const followMutation = useMutation({
     mutationFn: () => postApi(`/api/users/${clip.owner.username}/actions`, { action: "follow" }),
     onSuccess: () => {
@@ -224,6 +243,62 @@ function ClipItem({
     },
     onError: (error: Error) => toast(error.message, "error"),
   });
+
+  const getShareData = () => {
+    const url = new URL("/clips", window.location.origin);
+    url.searchParams.set("focus", clip.id);
+    const message = `Смотри клип «${clip.title || "Без названия"}» в UZON!`;
+    return { url: url.toString(), message };
+  };
+
+  const copyShareLink = async () => {
+    const { url } = getShareData();
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = url;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.select();
+        const success = document.execCommand("copy");
+        textArea.remove();
+        if (!success) throw new Error("Copy failed");
+      }
+      setCopied(true);
+      toast("Ссылка на клип скопирована", "success");
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      toast("Не удалось скопировать ссылку", "error");
+    }
+  };
+
+  const shareNative = async () => {
+    const { url, message } = getShareData();
+    if (typeof navigator.share !== "function") {
+      toast("Системная отправка не поддерживается этим браузером", "error");
+      return;
+    }
+    try {
+      await navigator.share({ title: clip.title || "Клип UZON", text: message, url });
+      setShareOpen(false);
+    } catch (error) {
+      if (error instanceof Error && error.name !== "AbortError") {
+        toast("Не удалось открыть меню отправки", "error");
+      }
+    }
+  };
+
+  const shareExternal = (service: "telegram" | "whatsapp") => {
+    const { url, message } = getShareData();
+    const target = service === "telegram"
+      ? `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(`${message} ${url}`)}`;
+    window.open(target, "_blank", "noopener,noreferrer");
+    setShareOpen(false);
+  };
 
   return (
     <div className="relative h-full w-full bg-black" onClick={() => setPaused((p) => !p)}>
@@ -275,7 +350,7 @@ function ClipItem({
             {clip.description && <p className="mt-0.5 line-clamp-2 text-xs text-white/70">{clip.description}</p>}
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {clip.hashtags.slice(0, 4).map((tag) => (
-                <Link key={tag} href={`/search?q=%23${tag}&type=clips`} className="text-[11px] font-medium text-brand-soft text-white/85 hover:text-white">
+                <Link key={tag} href={`/search?q=%23${tag}&type=clips`} className="text-[11px] font-medium text-white/85 hover:text-white">
                   #{tag}
                 </Link>
               ))}
@@ -285,6 +360,7 @@ function ClipItem({
               {clip.durationMs ? ` · ${fmt.duration(clip.durationMs)}` : ""}
             </p>
           </div>
+
           <div className="flex flex-col items-center gap-3" onClick={(event) => event.stopPropagation()}>
             <ClipAction
               label={t("post.comment")}
@@ -293,25 +369,75 @@ function ClipItem({
               onClick={() => likeMutation.mutate()}
             />
             <ClipAction label={t("post.comments")} icon={<MessageCircle className="h-6 w-6" />} text={fmt.number(clip.commentCount)} onClick={onOpenComments} />
-            <ClipAction
-              label={t("common.save")}
-              icon={<Bookmark className="h-6 w-6" />}
-              onClick={() => saveMutation.mutate()}
-            />
-            <ClipAction
-              label={t("common.share")}
-              icon={<Send className="h-6 w-6" />}
-              onClick={() => {
-                void navigator.clipboard?.writeText(`${window.location.origin}/clips?focus=${clip.id}`);
-                toast(t("common.copied"), "success");
-              }}
-            />
+            <ClipAction label={t("common.save")} icon={<Bookmark className="h-6 w-6" />} onClick={() => saveMutation.mutate()} />
+            <ClipAction label={t("common.share")} icon={<Send className="h-6 w-6" />} onClick={() => setShareOpen(true)} />
             <ClipAction label={muted ? t("call.unmute") : "Mute"} icon={<VolumeIcon muted={muted} />} onClick={() => setMuted((m) => !m)} />
             <ClipAction label={t("common.report")} icon={<MoreHorizontal className="h-6 w-6" />} onClick={onReport} />
           </div>
         </div>
       </div>
+
+      {shareOpen && (
+        <div
+          className="absolute inset-0 z-50 flex items-end justify-center bg-black/55 p-3 sm:items-center"
+          onClick={(event) => {
+            event.stopPropagation();
+            setShareOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Поделиться клипом"
+            className="w-full max-w-sm rounded-2xl border border-white/10 bg-surface p-4 text-ink shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold">Поделиться клипом</h3>
+                <p className="mt-1 text-xs text-muted">Отправь друзьям в пару нажатий</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShareOpen(false)}
+                aria-label="Закрыть"
+                className="rounded-full p-2 text-muted transition hover:bg-surface2 hover:text-ink"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <ShareOption icon={<Send className="h-5 w-5" />} label="Telegram" onClick={() => shareExternal("telegram")} />
+              <ShareOption icon={<MessageSquareShare className="h-5 w-5" />} label="WhatsApp" onClick={() => shareExternal("whatsapp")} />
+              <ShareOption icon={<Copy className="h-5 w-5" />} label={copied ? "Скопировано" : "Копировать ссылку"} onClick={() => void copyShareLink()} />
+              <ShareOption
+                icon={<Share2 className="h-5 w-5" />}
+                label="Другие приложения"
+                onClick={() => void shareNative()}
+              />
+            </div>
+
+            <div className="mt-4 rounded-xl bg-surface2 p-3">
+              <p className="line-clamp-2 break-all text-xs text-muted">{getShareData().url}</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function ShareOption({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border border-line bg-surface2 px-3 py-3 text-sm font-medium text-ink transition hover:border-brand hover:bg-surface"
+    >
+      <span className="text-brand">{icon}</span>
+      <span className="text-center">{label}</span>
+    </button>
   );
 }
 
@@ -333,7 +459,15 @@ function VolumeIcon({ muted }: { muted: boolean }) {
 
 function ClipAction({ icon, text, label, onClick }: { icon: React.ReactNode; text?: string; label: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} aria-label={label} className="flex flex-col items-center gap-0.5 text-white transition hover:scale-105">
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      aria-label={label}
+      className="flex flex-col items-center gap-0.5 text-white transition hover:scale-105"
+    >
       <span className="drop-shadow">{icon}</span>
       {text && <span className="text-[10px] font-semibold">{text}</span>}
     </button>

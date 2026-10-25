@@ -1011,7 +1011,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const hasText = text.trim().length > 0;
 
   return (
-    <div className="fixed inset-0 z-40 flex h-[100dvh] w-full flex-col bg-background pb-[72px]">
+    <div className="fixed inset-0 z-40 flex h-[100dvh] w-full flex-col overflow-hidden bg-background">
       {/* ------------------------------- ШАПКА ------------------------------- */}
       <header className="relative flex shrink-0 items-center gap-2 border-b border-line bg-surface/90 px-3 py-2.5 backdrop-blur">
         <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-brand/50 to-transparent" />
