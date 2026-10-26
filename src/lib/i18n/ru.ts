@@ -102,6 +102,7 @@ export const ru: Dictionary = {
 
   "post.text": "Текстовый пост",
   "post.photo": "Фотография",
+  "post.like": "Нравится",
   "post.create": "Создать публикацию",
   "post.comment": "Комментарий",
   "post.comments": "Комментарии",
