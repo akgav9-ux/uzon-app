@@ -424,4 +424,4 @@ export const uz: Dictionary = {
   "category.music": "Musiqa",
   "category.sport": "Sport",
   "category.culture": "Madaniyat",
-} as const;
+} as any;

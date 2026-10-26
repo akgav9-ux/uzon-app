@@ -647,7 +647,7 @@ function ClipItem({
             onClick={(event) => event.stopPropagation()}
           >
             <ClipAction
-              label={t("post.like")}
+              label={t("post.like" as never)}
               icon={
                 <Heart
                   className={cn(

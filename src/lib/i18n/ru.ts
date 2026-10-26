@@ -423,4 +423,4 @@ export const ru: Dictionary = {
   "category.music": "Музыка",
   "category.sport": "Спорт",
   "category.culture": "Культура",
-} as const;
+} as any;
