@@ -107,10 +107,22 @@ export function CallScreen({ callId }: { callId: string }) {
         setError(t("call.iceWarning"));
         setStatus("failed");
       }
-      if (state === "disconnected") setStatus("connecting");
     };
     return pc;
   }, [callQuery.data?.call.kind, getMedia, iceServers, sendSignal, t]);
+
+  // 🔥 ГЛАВНЫЙ ФИКС: Синхронизация статуса из поллинга!
+  useEffect(() => {
+    if (signalQuery.data?.status && !isCleaningUp.current) {
+      const serverStatus = signalQuery.data.status;
+      if (serverStatus !== status) {
+        setStatus(serverStatus);
+        if (["ended", "declined", "missed", "failed"].includes(serverStatus)) {
+          cleanup();
+        }
+      }
+    }
+  }, [signalQuery.data?.status]);
 
   useEffect(() => {
     const signals = signalQuery.data?.signals ?? [];
@@ -146,8 +158,6 @@ export function CallScreen({ callId }: { callId: string }) {
             const candidate = signal.payload.candidate as RTCIceCandidateInit;
             if (pc && pc.remoteDescription) await pc.addIceCandidate(candidate).catch(() => undefined);
           }
-          if (signal.type === "decline") setStatus("declined");
-          if (signal.type === "end") setStatus("ended");
         } catch (err) {
           console.error("Signal processing error:", err);
         }
@@ -157,10 +167,10 @@ export function CallScreen({ callId }: { callId: string }) {
   }, [signalQuery.data]);
 
   useEffect(() => {
-    if (callQuery.data && !isCleaningUp.current) {
+    if (callQuery.data && !isCleaningUp.current && !signalQuery.data?.status) {
       setStatus(callQuery.data.call.status);
     }
-  }, [callQuery.data?.call.status]);
+  }, [callQuery.data?.call.status, signalQuery.data?.status]);
 
   useEffect(() => {
     if (status !== "active") return;
@@ -195,7 +205,13 @@ export function CallScreen({ callId }: { callId: string }) {
   
   const acceptCall = useMutation({
     mutationFn: () => postApi(`/api/calls/${callId}`, { action: "accept" }).then(() => sendSignal("accept")),
-    onSuccess: () => setStatus("active"),
+    onSuccess: () => {
+      setStatus("active");
+      // Запускаем WebRTC (если мы callee)
+      if (callQuery.data && !callQuery.data.call.isInitiator) {
+         createPeer().catch(console.error);
+      }
+    },
     onError: (err: Error) => {
       setError(err.message);
       if (err.message.includes("no longer ringing")) setStatus("ended");
@@ -309,9 +325,6 @@ export function CallScreen({ callId }: { callId: string }) {
   );
 }
 
-// ============================================================================
-// ВОТ ОН - ПОТЕРЯННЫЙ ЭКСПОРТ! Теперь уведомление о входящем звонке снова тут.
-// ============================================================================
 export function IncomingCallHost() {
   const { t, user } = useApp();
   const query = useQuery({
