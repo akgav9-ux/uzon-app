@@ -32,10 +32,9 @@ export function CallScreen({ callId }: { callId: string }) {
   const { t, fmt, toast } = useApp();
   const queryClient = useQueryClient();
   
-  // Рефы медиа-элементов
   const localVideo = useRef<HTMLVideoElement>(null);
   const remoteVideo = useRef<HTMLVideoElement>(null);
-  const remoteAudio = useRef<HTMLAudioElement>(null); // 🔥 Отдельный тег для звука
+  const remoteAudio = useRef<HTMLAudioElement>(null);
   
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -73,7 +72,6 @@ export function CallScreen({ callId }: { callId: string }) {
     setIceWarning(!iceServers.some((server) => server.urls.some((url) => url.startsWith("turn"))));
   }, [iceServers]);
 
-  // 🔥 Генератор гудков
   const playTone = useCallback((type: "dial" | "ring") => {
     try {
       if (!audioContextRef.current) {
@@ -129,11 +127,8 @@ export function CallScreen({ callId }: { callId: string }) {
 
   useEffect(() => {
     if (status === "ringing") {
-      if (callQuery.data?.call.isInitiator) {
-        playTone("dial");
-      } else {
-        playTone("ring");
-      }
+      if (callQuery.data?.call.isInitiator) playTone("dial");
+      else playTone("ring");
     } else {
       stopTone();
     }
@@ -172,20 +167,20 @@ export function CallScreen({ callId }: { callId: string }) {
     pc.ontrack = (event) => {
       const remoteStream = event.streams[0] ?? new MediaStream([event.track]);
       
-      // 🔥 Направляем ВИДЕО в video тег
       if (remoteVideo.current) {
         remoteVideo.current.srcObject = remoteStream;
         remoteVideo.current.play().catch(console.error);
       }
       
-      // 🔥 Направляем ЗВУК в скрытый audio тег (100% работает на iOS/Android)
       if (remoteAudio.current) {
         remoteAudio.current.srcObject = remoteStream;
         remoteAudio.current.muted = false;
         remoteAudio.current.play().catch((err) => {
           console.error("Audio play blocked:", err);
           const unlock = () => {
-            remoteAudio.current?.play().catch(console.error);
+            if (remoteAudio.current?.isConnected) {
+              remoteAudio.current.play().catch(console.error);
+            }
             document.removeEventListener("click", unlock);
             document.removeEventListener("touchstart", unlock);
           };
@@ -206,7 +201,7 @@ export function CallScreen({ callId }: { callId: string }) {
     return pc;
   }, [callQuery.data?.call.kind, getMedia, iceServers, sendSignal, t]);
 
-  // Диагностика (пишет в консоль, идут ли байты)
+  // Диагностика
   useEffect(() => {
     if (status !== "active" || !pcRef.current) return;
     const interval = setInterval(async () => {
@@ -324,14 +319,18 @@ export function CallScreen({ callId }: { callId: string }) {
     onSuccess: () => {
       setStatus("active");
       
-      // Принудительный запуск
+      // 🔥 Исправлено: проверяем, что элемент в DOM, прежде чем вызывать play()
       setTimeout(() => {
-        if (remoteAudio.current) {
-          remoteAudio.current.muted = false;
-          remoteAudio.current.play().catch(console.error);
-        }
-        if (remoteVideo.current) {
-          remoteVideo.current.play().catch(console.error);
+        try {
+          if (remoteAudio.current?.isConnected) {
+            remoteAudio.current.muted = false;
+            remoteAudio.current.play().catch((e) => console.warn("Audio play error:", e.name));
+          }
+          if (remoteVideo.current?.isConnected) {
+            remoteVideo.current.play().catch((e) => console.warn("Video play error:", e.name));
+          }
+        } catch (e) {
+          console.warn("Play error:", e);
         }
       }, 500);
 
@@ -471,7 +470,6 @@ export function IncomingCallHost() {
   });
   
   const incoming = query.data?.incoming?.[0];
-
   if (!incoming || !user) return null;
 
   return (
