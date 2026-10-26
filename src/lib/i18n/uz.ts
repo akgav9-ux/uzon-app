@@ -104,6 +104,7 @@ export const uz: Dictionary = {
   "post.text": "Matnli post",
   "post.photo": "Rasm",
   "post.create": "Post yaratish",
+  "post.like": "Yoqdi",
   "post.comment": "Izoh",
   "post.comments": "Izohlar",
   "post.writeComment": "Izoh yozing…",
