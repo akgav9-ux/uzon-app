@@ -5,8 +5,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mic, MicOff, PhoneOff, SwitchCamera, Video, VideoOff, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "@/components/providers";
-import { Avatar, Button, IconButton } from "@/components/ui";
+import { Avatar, Button } from "@/components/ui";
 import { get, post as postApi, qk } from "@/lib/client/api";
+import { cn } from "@/lib/utils";
 
 type CallState = {
   call: {
@@ -27,7 +28,6 @@ type CallState = {
 type Signal = { id: string; type: string; payload: Record<string, unknown>; fromUserId: string; createdAt: string };
 type IceServer = { urls: string[]; username?: string; credential?: string };
 
-/** Full 1:1 WebRTC call screen with DB-backed signalling. */
 export function CallScreen({ callId }: { callId: string }) {
   const { t, fmt, toast } = useApp();
   const queryClient = useQueryClient();
@@ -35,8 +35,9 @@ export function CallScreen({ callId }: { callId: string }) {
   const remoteVideo = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const pendingIce = useRef<RTCIceCandidateInit[]>([]);
-  const remoteReady = useRef(false);
+  
+  const processedSignals = useRef<Set<string>>(new Set());
+  const isCleaningUp = useRef(false);
   const facing = useRef<"user" | "environment">("user");
 
   const [status, setStatus] = useState<string>("connecting");
@@ -52,6 +53,7 @@ export function CallScreen({ callId }: { callId: string }) {
     queryKey: qk.callSignals(callId),
     queryFn: () => get<{ status: string; signals: Signal[] }>(`/api/calls/${callId}/signals`),
     refetchInterval: 1200,
+    enabled: !["ended", "declined", "missed", "failed"].includes(status),
   });
 
   const sendSignal = useCallback(
@@ -66,29 +68,38 @@ export function CallScreen({ callId }: { callId: string }) {
   }, [iceServers]);
 
   const getMedia = useCallback(async (video: boolean) => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: video ? { facingMode: facing.current } : false,
-    });
-    streamRef.current = stream;
-    if (localVideo.current && video) localVideo.current.srcObject = stream;
-    return stream;
-  }, []);
+    if (streamRef.current) return streamRef.current;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: video ? { facingMode: facing.current } : false,
+      });
+      streamRef.current = stream;
+      if (localVideo.current && video) localVideo.current.srcObject = stream;
+      return stream;
+    } catch (err) {
+      setError(t("call.permissionDenied"));
+      throw err;
+    }
+  }, [t]);
 
   const createPeer = useCallback(async () => {
     if (pcRef.current) return pcRef.current;
     const kind = callQuery.data?.call.kind ?? "audio";
     const pc = new RTCPeerConnection({ iceServers });
     pcRef.current = pc;
+    
     const stream = await getMedia(kind === "video");
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+    
     pc.onicecandidate = (event) => {
       if (event.candidate) void sendSignal("ice", { candidate: event.candidate.toJSON() });
     };
+    
     pc.ontrack = (event) => {
       if (remoteVideo.current) remoteVideo.current.srcObject = event.streams[0] ?? new MediaStream([event.track]);
-      remoteReady.current = true;
     };
+    
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
       if (state === "connected") setStatus("active");
@@ -98,83 +109,73 @@ export function CallScreen({ callId }: { callId: string }) {
       }
       if (state === "disconnected") setStatus("connecting");
     };
-    for (const candidate of pendingIce.current) {
-      await pc.addIceCandidate(candidate).catch(() => undefined);
-    }
-    pendingIce.current = [];
     return pc;
   }, [callQuery.data?.call.kind, getMedia, iceServers, sendSignal, t]);
 
-  // Callee accepts → initiator creates the offer.
   useEffect(() => {
     const signals = signalQuery.data?.signals ?? [];
     if (!signals.length || !callQuery.data) return;
+    
     void (async () => {
       for (const signal of signals) {
-        if (signal.type === "accept" && callQuery.data.call.isInitiator) {
-          const pc = await createPeer();
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          await sendSignal("offer", { sdp: offer });
-        }
-        if (signal.type === "offer" && !callQuery.data.call.isInitiator) {
-          const pc = await createPeer();
-          await pc.setRemoteDescription(new RTCSessionDescription(signal.payload.sdp as RTCSessionDescriptionInit));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          await sendSignal("answer", { sdp: answer });
-        }
-        if (signal.type === "answer") {
-          const pc = pcRef.current;
-          if (pc && !pc.currentRemoteDescription) {
-            await pc.setRemoteDescription(new RTCSessionDescription(signal.payload.sdp as RTCSessionDescriptionInit));
+        if (processedSignals.current.has(signal.id)) continue;
+        processedSignals.current.add(signal.id);
+
+        try {
+          if (signal.type === "accept" && callQuery.data.call.isInitiator) {
+            const pc = await createPeer();
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            await sendSignal("offer", { sdp: offer });
           }
+          if (signal.type === "offer" && !callQuery.data.call.isInitiator) {
+            const pc = await createPeer();
+            await pc.setRemoteDescription(new RTCSessionDescription(signal.payload.sdp as RTCSessionDescriptionInit));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await sendSignal("answer", { sdp: answer });
+          }
+          if (signal.type === "answer") {
+            const pc = pcRef.current;
+            if (pc && !pc.currentRemoteDescription) {
+              await pc.setRemoteDescription(new RTCSessionDescription(signal.payload.sdp as RTCSessionDescriptionInit));
+            }
+          }
+          if (signal.type === "ice") {
+            const pc = pcRef.current;
+            const candidate = signal.payload.candidate as RTCIceCandidateInit;
+            if (pc && pc.remoteDescription) await pc.addIceCandidate(candidate).catch(() => undefined);
+          }
+          if (signal.type === "decline") setStatus("declined");
+          if (signal.type === "end") setStatus("ended");
+        } catch (err) {
+          console.error("Signal processing error:", err);
         }
-        if (signal.type === "ice") {
-          const pc = pcRef.current;
-          const candidate = signal.payload.candidate as RTCIceCandidateInit;
-          if (pc && pc.remoteDescription) await pc.addIceCandidate(candidate).catch(() => undefined);
-          else pendingIce.current.push(candidate);
-        }
-        if (signal.type === "decline") setStatus("declined");
-        if (signal.type === "end") setStatus("ended");
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signalQuery.data]);
 
   useEffect(() => {
-    if (callQuery.data) setStatus(callQuery.data.call.status);
+    if (callQuery.data && !isCleaningUp.current) {
+      setStatus(callQuery.data.call.status);
+    }
   }, [callQuery.data?.call.status]);
 
   useEffect(() => {
     if (status !== "active") return;
-    const started = Date.now();
-    const timer = window.setInterval(() => setElapsed(Date.now() - started), 1000);
+    const startTime = callQuery.data?.call.answeredAt 
+      ? new Date(callQuery.data.call.answeredAt).getTime() 
+      : Date.now();
+      
+    const timer = window.setInterval(() => setElapsed(Date.now() - startTime), 1000);
     return () => window.clearInterval(timer);
-  }, [status]);
-
-  const endCall = useMutation({
-    mutationFn: () => postApi(`/api/calls/${callId}`, { action: "end" }),
-    onSuccess: () => {
-      cleanup();
-      queryClient.invalidateQueries({ queryKey: qk.calls });
-    },
-  });
-  const acceptCall = useMutation({
-    mutationFn: () => postApi(`/api/calls/${callId}`, { action: "accept" }).then(() => sendSignal("accept")),
-    onSuccess: () => setStatus("active"),
-    onError: (err: Error) => setError(err.message),
-  });
-  const declineCall = useMutation({
-    mutationFn: () => postApi(`/api/calls/${callId}`, { action: "decline" }),
-    onSuccess: () => {
-      cleanup();
-      setStatus("declined");
-    },
-  });
+  }, [status, callQuery.data?.call.answeredAt]);
 
   function cleanup() {
+    if (isCleaningUp.current) return;
+    isCleaningUp.current = true;
+    
     streamRef.current?.getTracks().forEach((track) => track.stop());
     pcRef.current?.close();
     pcRef.current = null;
@@ -183,23 +184,41 @@ export function CallScreen({ callId }: { callId: string }) {
     if (remoteVideo.current) remoteVideo.current.srcObject = null;
   }
 
-  // Start local preview as soon as the call is known (callee previews while ringing).
+  const endCall = useMutation({
+    mutationFn: () => postApi(`/api/calls/${callId}`, { action: "end" }),
+    onSuccess: () => {
+      cleanup();
+      setStatus("ended");
+      queryClient.invalidateQueries({ queryKey: qk.calls });
+    },
+  });
+  
+  const acceptCall = useMutation({
+    mutationFn: () => postApi(`/api/calls/${callId}`, { action: "accept" }).then(() => sendSignal("accept")),
+    onSuccess: () => setStatus("active"),
+    onError: (err: Error) => {
+      setError(err.message);
+      if (err.message.includes("no longer ringing")) setStatus("ended");
+    },
+  });
+
+  const declineCall = useMutation({
+    mutationFn: () => postApi(`/api/calls/${callId}`, { action: "decline" }),
+    onSuccess: () => {
+      cleanup();
+      setStatus("declined");
+    },
+  });
+
   useEffect(() => {
-    if (!callQuery.data) return;
+    if (!callQuery.data || isCleaningUp.current) return;
     const kind = callQuery.data.call.kind;
-    if (!callQuery.data.call.isInitiator && kind === "video") {
-      getMedia(true).catch(() => {
-        setError(t("call.permissionDenied"));
-        toast(t("call.permissionDenied"), "error");
-      });
+    if (!callQuery.data.call.isInitiator && kind === "video" && !streamRef.current) {
+      getMedia(true).catch(() => toast(t("call.permissionDenied"), "error"));
     }
     return cleanup;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callQuery.data?.call.id]);
-
-  useEffect(() => {
-    if (!navigator.mediaDevices || typeof RTCPeerConnection === "undefined") setError(t("call.notSupported"));
-  }, [t]);
 
   const kind = callQuery.data?.call.kind ?? "audio";
   const peer = callQuery.data?.peer;
@@ -207,133 +226,92 @@ export function CallScreen({ callId }: { callId: string }) {
   const finished = ["ended", "missed", "declined", "failed"].includes(status);
 
   const statusLabel =
-    status === "active"
-      ? `${t("call.active")} · ${fmt.duration(elapsed)}`
-      : status === "ringing"
-        ? t("call.ringing")
-        : status === "declined"
-          ? t("call.declined")
-          : status === "missed"
-            ? t("call.missed")
-            : status === "failed"
-              ? t("common.error")
-              : t("call.connecting");
+    status === "active" ? fmt.duration(elapsed)
+    : status === "ringing" ? "Вызов..."
+    : status === "declined" ? "Отклонен"
+    : status === "missed" ? "Пропущен"
+    : status === "failed" ? "Ошибка сети"
+    : "Соединение...";
 
   return (
-    <div className="relative flex h-[calc(100dvh-8rem)] flex-col overflow-hidden rounded-3xl bg-black">
-      <video ref={remoteVideo} autoPlay playsInline className="absolute inset-0 h-full w-full object-cover" />
-      {kind === "video" && (
-        <video
-          ref={localVideo}
-          autoPlay
-          playsInline
-          muted
-          className={cnLocal(camOn)}
-        />
-      )}
-      <div className="relative z-10 flex flex-1 flex-col">
-        <div className="safe-top flex items-start gap-3 p-4">
-          <Avatar name={peer?.displayName ?? "UZON"} url={peer?.avatarUrl} size={44} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-semibold text-white">{peer?.displayName ?? t("call.start")}</p>
-            <p className="text-xs text-white/70">
-              {peer?.username ? `@${peer.username}` : ""} · {statusLabel}
-            </p>
-            {iceWarning && !finished && <p className="mt-1 max-w-sm text-[10px] text-warning">{t("call.iceWarning")}</p>}
-            {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
-          </div>
-          <Link href="/messages" aria-label={t("common.close")}>
-            <IconButton label={t("common.close")} className="text-white hover:bg-white/15">
-              <X className="h-4 w-4" />
-            </IconButton>
-          </Link>
+    <div className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-[#0f1115] text-white">
+      <video ref={remoteVideo} autoPlay playsInline className={cn("absolute inset-0 h-full w-full object-cover transition-opacity duration-500", status !== "active" && "opacity-0")} />
+
+      <div className={cn("absolute inset-0 flex flex-col items-center justify-center z-10 transition-opacity", status === "active" && "opacity-0 pointer-events-none")}>
+        <div className="relative mb-6">
+          <div className="absolute inset-0 animate-ping rounded-full bg-white/10" />
+          <Avatar name={peer?.displayName ?? "UZON"} url={peer?.avatarUrl} size={120} className="shadow-2xl ring-4 ring-white/10" />
         </div>
+        <h2 className="text-2xl font-semibold">{peer?.displayName ?? "UZON"}</h2>
+        <p className="mt-2 text-white/60">{statusLabel}</p>
+        {iceWarning && !finished && <p className="mt-4 text-xs text-yellow-400 text-center px-4">Внимание: Нет TURN сервера. Звонок может не соединиться в мобильной сети.</p>}
+      </div>
 
-        {ringing && !callQuery.data?.call.isInitiator && (
-          <div className="relative z-10 mx-auto mt-auto mb-4 flex gap-3">
-            <Button variant="danger" size="lg" icon={<PhoneOff className="h-4 w-4" />} onClick={() => declineCall.mutate()} loading={declineCall.isPending}>
-              {t("call.decline")}
-            </Button>
-            <Button size="lg" icon={<Mic className="h-4 w-4" />} onClick={() => acceptCall.mutate()} loading={acceptCall.isPending}>
-              {t("call.accept")}
-            </Button>
+      {kind === "video" && (
+        <div className={cn("absolute right-4 top-20 z-20 w-28 h-40 overflow-hidden rounded-2xl border-2 border-white/10 bg-black shadow-2xl transition-all", (!camOn || finished) && "opacity-0 translate-y-4")}>
+          <video ref={localVideo} autoPlay playsInline muted className="h-full w-full object-cover" style={{ transform: "scaleX(-1)" }} />
+        </div>
+      )}
+
+      <div className="relative z-30 flex items-start justify-between p-4 bg-gradient-to-b from-black/60 to-transparent">
+        <div className="flex items-center gap-3">
+           <Avatar name={peer?.displayName ?? "UZON"} url={peer?.avatarUrl} size={40} />
+           <div>
+              <p className="text-sm font-semibold">{peer?.displayName ?? "UZON"}</p>
+              <p className="text-xs text-white/60">{statusLabel}</p>
+           </div>
+        </div>
+        <Link href="/messages" onClick={cleanup}>
+          <button className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition"><X className="h-5 w-5" /></button>
+        </Link>
+      </div>
+
+      <div className="relative z-30 mt-auto bg-[#1c1c1e]/90 backdrop-blur-xl border-t border-white/5 pb-8 pt-4 px-6">
+        {ringing && !callQuery.data?.call.isInitiator ? (
+          <div className="flex justify-center gap-6">
+            <button onClick={() => declineCall.mutate()} className="flex h-16 w-16 items-center justify-center rounded-full bg-[#ff3b30] text-white shadow-lg active:scale-95 transition"><PhoneOff className="h-7 w-7" /></button>
+            <button onClick={() => acceptCall.mutate()} className="flex h-16 w-16 items-center justify-center rounded-full bg-[#34c759] text-white shadow-lg active:scale-95 animate-bounce"><Mic className="h-7 w-7" /></button>
           </div>
-        )}
-
-        {!ringing && (
-          <div className="relative z-10 mx-auto mb-6 mt-auto flex items-center gap-3">
-            <IconButton
-              label={micOn ? t("call.mute") : t("call.unmute")}
-              className={cnControl(!micOn)}
-              onClick={() => {
-                const next = !micOn;
-                setMicOn(next);
-                streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = next));
-              }}
-            >
-              {micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
-            </IconButton>
-            {kind === "video" && (
-              <>
-                <IconButton
-                  label={camOn ? t("call.cameraOff") : t("call.cameraOn")}
-                  className={cnControl(!camOn)}
-                  onClick={() => {
-                    const next = !camOn;
-                    setCamOn(next);
-                    streamRef.current?.getVideoTracks().forEach((track) => (track.enabled = next));
-                  }}
-                >
-                  {camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
-                </IconButton>
-                <IconButton
-                  label={t("call.switchCamera")}
-                  className={cnControl(false)}
-                  onClick={async () => {
-                    facing.current = facing.current === "user" ? "environment" : "user";
-                    const videoTrack = streamRef.current?.getVideoTracks()[0];
-                    try {
-                      await videoTrack?.applyConstraints({ facingMode: facing.current });
-                    } catch {
-                      setError(t("call.permissionDenied"));
-                    }
-                  }}
-                >
-                  <SwitchCamera className="h-5 w-5" />
-                </IconButton>
-              </>
-            )}
-            <button
-              onClick={() => endCall.mutate()}
-              disabled={finished}
-              aria-label={t("call.end")}
-              className="flex h-14 w-14 items-center justify-center rounded-full bg-danger text-white transition hover:opacity-90 disabled:opacity-40"
-            >
-              <PhoneOff className="h-6 w-6" />
+        ) : (
+          <div className="flex items-center justify-between px-2">
+            <button onClick={() => { const next = !micOn; setMicOn(next); streamRef.current?.getAudioTracks().forEach((tr) => (tr.enabled = next)); }} className={cn("flex h-14 w-14 items-center justify-center rounded-full transition active:scale-95", micOn ? "bg-white/10 text-white" : "bg-white text-black")}>
+              {micOn ? <Mic className="h-6 w-6" /> : <MicOff className="h-6 w-6" />}
             </button>
+            
+            <button onClick={() => endCall.mutate()} disabled={finished} className="flex h-16 w-16 items-center justify-center rounded-full bg-[#ff3b30] text-white shadow-lg active:scale-95 disabled:opacity-50">
+              <PhoneOff className="h-7 w-7" />
+            </button>
+
+            {kind === "video" ? (
+              <div className="flex gap-2">
+                <button onClick={() => { const next = !camOn; setCamOn(next); streamRef.current?.getVideoTracks().forEach((tr) => (tr.enabled = next)); }} className={cn("flex h-14 w-14 items-center justify-center rounded-full transition", camOn ? "bg-white/10 text-white" : "bg-white text-black")}>
+                  {camOn ? <Video className="h-6 w-6" /> : <VideoOff className="h-6 w-6" />}
+                </button>
+                <button onClick={async () => { 
+                  facing.current = facing.current === "user" ? "environment" : "user"; 
+                  try { await streamRef.current?.getVideoTracks()[0]?.applyConstraints({ facingMode: facing.current }); } catch {}
+                }} className="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 text-white">
+                  <SwitchCamera className="h-6 w-6" />
+                </button>
+              </div>
+            ) : <div className="h-14 w-14" />}
           </div>
         )}
       </div>
+
       {finished && (
-        <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-center gap-3 bg-black/80 px-4 py-3">
-          <p className="text-sm text-white">{statusLabel}</p>
-          <Link href="/messages">
-            <Button size="sm" variant="secondary">{t("errors.back")}</Button>
-          </Link>
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md">
+          <p className="text-xl font-semibold text-white mb-6">{statusLabel}</p>
+          <Link href="/messages" onClick={cleanup}><Button size="lg" className="bg-white text-black hover:bg-gray-200">Вернуться в чат</Button></Link>
         </div>
       )}
     </div>
   );
 }
 
-function cnLocal(camOn: boolean) {
-  return `absolute bottom-24 right-4 z-10 h-32 w-24 rounded-xl border border-white/20 object-cover shadow-lg ${camOn ? "" : "opacity-0"}`;
-}
-function cnControl(active: boolean) {
-  return `flex h-12 w-12 items-center justify-center rounded-full border border-white/20 text-white transition hover:bg-white/15 ${active ? "bg-danger" : "bg-white/10"}`;
-}
-
-/** Global incoming-call banner driven by polling (no push provider required). */
+// ============================================================================
+// ВОТ ОН - ПОТЕРЯННЫЙ ЭКСПОРТ! Теперь уведомление о входящем звонке снова тут.
+// ============================================================================
 export function IncomingCallHost() {
   const { t, user } = useApp();
   const query = useQuery({
@@ -342,8 +320,10 @@ export function IncomingCallHost() {
     enabled: Boolean(user),
     refetchInterval: 5000,
   });
+  
   const incoming = query.data?.incoming?.[0];
   if (!incoming || !user) return null;
+
   return (
     <div className="animate-fade-up fixed inset-x-3 top-16 z-[80] mx-auto flex max-w-md items-center gap-3 rounded-2xl border border-line bg-surface p-3 shadow-2xl">
       <Avatar name={incoming.peer.displayName} url={incoming.peer.avatarUrl} size={40} />

@@ -12,7 +12,6 @@ import { publicConfig } from "@/lib/config";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** Incoming ringing calls + call history. Signalling itself lives in /signals. */
 export async function GET(req: Request) {
   try {
     const user = await requireUser(req);
@@ -100,7 +99,6 @@ export async function POST(req: Request) {
     const [privacy] = await db.select().from(privacySettings).where(eq(privacySettings.userId, callee.id)).limit(1);
     const ctx = await getRelation(user.id, callee.id, "whoCanCall");
     
-    // ИЗМЕНЕНИЕ: Если настроек приватности нет, по умолчанию разрешаем звонить всем.
     const whoCanCall = privacy?.whoCanCall ?? "everyone"; 
     
     if (!canCall(whoCanCall as never, ctx)) {
@@ -118,7 +116,6 @@ export async function POST(req: Request) {
       if (conversation?.kind === "channel") throw new ApiError(422, "not_supported", "Channels do not support calls");
     }
 
-    // Закрываем зависшие звонки старше 2 минут
     await db
       .update(calls)
       .set({ status: "missed", endedAt: new Date(), endedReason: "timeout" })

@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { calls, notifications, profiles } from "@/db/schema";
@@ -27,12 +27,17 @@ export async function GET(req: Request, { params }: Params) {
     const user = await requireUser(req);
     const { id } = await params;
     const call = await load(id);
-    if (call.initiatorId !== user.id && call.calleeId !== user.id) throw new ApiError(403, "forbidden");
+    
+    if (call.initiatorId !== user.id && call.calleeId !== user.id) {
+      throw new ApiError(403, "forbidden");
+    }
+
     const [peer] = await db
       .select({ displayName: profiles.displayName, username: profiles.username, avatarKey: profiles.avatarKey })
       .from(profiles)
       .where(eq(profiles.id, call.initiatorId === user.id ? call.calleeId : call.initiatorId))
       .limit(1);
+
     return ok({
       call: {
         id: call.id,
@@ -67,31 +72,63 @@ export async function POST(req: Request, { params }: Params) {
     const body = await readBody(req, schema);
     await rateLimit(`call-state:${user.id}`, 60, 60);
     const call = await load(id);
-    if (call.initiatorId !== user.id && call.calleeId !== user.id) throw new ApiError(403, "forbidden");
 
+    if (call.initiatorId !== user.id && call.calleeId !== user.id) {
+      throw new ApiError(403, "forbidden");
+    }
+
+    // --- ПРИНЯТИЕ ЗВОНКА ---
     if (body.action === "accept") {
       if (call.calleeId !== user.id) throw new ApiError(403, "forbidden", "Only the callee can accept");
       if (call.status !== "ringing") throw new ApiError(409, "call_not_ringing", "The call is no longer ringing");
+      
+      // Защита от гонок: обновляем только если статус всё ещё 'ringing'
       const [updated] = await db
         .update(calls)
         .set({ status: "active", answeredAt: new Date() })
-        .where(eq(calls.id, id))
+        .where(and(eq(calls.id, id), eq(calls.status, "ringing")))
         .returning();
-      return ok({ status: "active", answeredAt: updated!.answeredAt?.toISOString() ?? null });
+
+      if (!updated) {
+        throw new ApiError(409, "call_already_handled", "This call was already accepted or finished");
+      }
+
+      return ok({ status: "active", answeredAt: updated.answeredAt?.toISOString() ?? null });
     }
 
+    // --- ОТКЛОНЕНИЕ ЗВОНКА ---
     if (body.action === "decline") {
       if (call.status !== "ringing") throw new ApiError(409, "call_not_ringing", "The call is no longer ringing");
-      await db.update(calls).set({ status: "declined", endedAt: new Date(), endedReason: "declined" }).where(eq(calls.id, id));
+      
+      // Защита от гонок: обновляем только если статус всё ещё 'ringing'
+      const [updated] = await db
+        .update(calls)
+        .set({ status: "declined", endedAt: new Date(), endedReason: "declined" })
+        .where(and(eq(calls.id, id), eq(calls.status, "ringing")))
+        .returning();
+
+      if (!updated) {
+        throw new ApiError(409, "call_already_handled", "This call was already accepted or finished");
+      }
+
       await notifyPeer(call.initiatorId === user.id ? call.calleeId : call.initiatorId, user.id, id, "declined");
       return ok({ status: "declined" });
     }
 
-    const durationMs = call.answeredAt ? Date.now() - call.answeredAt.getTime() : 0;
-    await db
+    // --- ЗАВЕРШЕНИЕ ЗВОНКА ---
+    const durationMs = call.answeredAt ? Math.max(0, Date.now() - call.answeredAt.getTime()) : 0;
+    
+    // Защита от гонок: обновляем только если звонок ещё не 'ended'
+    const [updated] = await db
       .update(calls)
       .set({ status: "ended", endedAt: new Date(), endedReason: "hangup", durationMs })
-      .where(eq(calls.id, id));
+      .where(and(eq(calls.id, id), ne(calls.status, "ended")))
+      .returning();
+
+    if (!updated) {
+      throw new ApiError(409, "call_already_ended", "This call has already been ended");
+    }
+
     await notifyPeer(call.initiatorId === user.id ? call.calleeId : call.initiatorId, user.id, id, "ended");
     return ok({ status: "ended", durationMs });
   } catch (error) {
@@ -110,4 +147,5 @@ async function notifyPeer(peerId: string, actorId: string, callId: string, type:
   });
 }
 
+// Оставляем, чтобы линтер не ругался на неиспользуемый импорт
 void sql;

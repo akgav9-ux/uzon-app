@@ -86,6 +86,23 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [online, setOnline] = useState(true);
 
+  // Сохраняем локальные настройки при смене
+  const setTheme = useCallback((newTheme: Theme) => {
+    setThemeState(newTheme);
+    localStorage.setItem(THEME_KEY, newTheme);
+  }, []);
+
+  const setLocale = useCallback((newLocale: string) => {
+    setLocaleState(newLocale);
+    localStorage.setItem(LOCALE_KEY, newLocale);
+    // Обновляем на сервере (если авторизован)
+    fetch("/api/account", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "settings", locale: newLocale }),
+    }).catch(() => undefined);
+  }, []);
+
   const loadSession = useCallback(async () => {
     setAuthLoading(true);
     try {
@@ -94,8 +111,21 @@ export function AppProviders({ children }: { children: ReactNode }) {
         const data = (await res.json()) as { user: SessionUser | null };
         setUser(data.user);
         if (data.user) {
-          setThemeState((data.user.theme as Theme) ?? "system");
-          setLocaleState(data.user.locale ?? "ru");
+          // Приоритет: localStorage > база > дефолт
+          const storedLocale = localStorage.getItem(LOCALE_KEY);
+          const storedTheme = localStorage.getItem(THEME_KEY) as Theme | null;
+
+          if (storedLocale) {
+            setLocaleState(storedLocale);
+          } else {
+            setLocaleState(data.user.locale ?? "ru");
+          }
+
+          if (storedTheme) {
+            setThemeState(storedTheme);
+          } else {
+            setThemeState((data.user.theme as Theme) ?? "system");
+          }
           return;
         }
       }
@@ -111,13 +141,18 @@ export function AppProviders({ children }: { children: ReactNode }) {
     void loadSession();
   }, [loadSession]);
 
-  // Local overrides are applied before the session arrives to avoid a flash.
+  // Начальная инициализация (до загрузки сессии)
   useEffect(() => {
     const storedTheme = localStorage.getItem(THEME_KEY) as Theme | null;
     const storedLocale = localStorage.getItem(LOCALE_KEY);
-    if (!storedLocale) localStorage.setItem(LOCALE_KEY, detectBrowserLocale());
+    if (!storedLocale) {
+      const detected = detectBrowserLocale();
+      localStorage.setItem(LOCALE_KEY, detected);
+      setLocaleState(detected);
+    } else {
+      setLocaleState(storedLocale);
+    }
     if (storedTheme) setThemeState(storedTheme);
-    setLocaleState(storedLocale ?? detectBrowserLocale());
     setOnline(navigator.onLine);
     const up = () => setOnline(true);
     const down = () => setOnline(false);
@@ -131,12 +166,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
-    localStorage.setItem(LOCALE_KEY, locale);
   }, [locale]);
 
   const toast = useCallback((text: string, tone: Toast["tone"] = "info") => {
@@ -152,9 +185,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       authLoading,
       refreshUser: loadSession,
       locale,
-      setLocale: setLocaleState,
+      setLocale,
       theme,
-      setTheme: setThemeState,
+      setTheme,
       t: (key, vars) => translate(locale, key, vars),
       fmt: {
         number: (n) => formatNumber(n, locale),
@@ -169,7 +202,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       online,
       queryClient,
     }),
-    [user, authLoading, loadSession, locale, theme, toast, toasts, online, queryClient],
+    [user, authLoading, loadSession, locale, theme, toast, toasts, online, queryClient, setLocale, setTheme],
   );
 
   return (

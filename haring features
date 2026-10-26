@@ -1,0 +1,7 @@
+ src/app/(app)/profile/page.tsx       |   9 [32m+[m
+ src/components/chat.tsx              |   2 [32m+[m[31m-[m
+ src/components/clips.tsx             | 226 [32m++++++++++++[m[31m----[m
+ src/components/share-uzon-button.tsx | 135 [32m++++++++++[m
+ src/components/shell.tsx             |  37 [32m++[m[31m-[m
+ src/components/video.tsx             | 488 [32m+++++++++++++++++++++++++++++[m[31m------[m
+ 6 files changed, 767 insertions(+), 130 deletions(-)

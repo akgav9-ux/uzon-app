@@ -1,0 +1,2079 @@
+
+===== FILE: package.json =====
+{
+  "name": "nextjs-postgresql-template",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "db:push": "drizzle-kit push --config=drizzle.config.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1152.0",
+    "@aws-sdk/s3-request-presigner": "^3.1152.0",
+    "@tanstack/react-query": "^5.90.20",
+    "@vercel/blob": "^2.8.2",
+    "clsx": "^2.1.1",
+    "dotenv": "17.3.1",
+    "drizzle-orm": "0.45.2",
+    "lucide-react": "^0.562.0",
+    "next": "16.2.6",
+    "nodemailer": "^10.1.2",
+    "pg": "8.20.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "tailwind-merge": "^3.4.0",
+    "vitest": "^3.2.4",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.17",
+    "@types/node": "22.19.15",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "8.18.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "drizzle-kit": "^0.30.5",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "postcss": "8.5.8",
+    "tailwindcss": "4.1.17",
+    "typescript": "5.9.3"
+  }
+}
+
+
+----- MISSING: next.config.js -----
+
+----- MISSING: next.config.mjs -----
+
+===== FILE: next.config.ts =====
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {};
+
+export default nextConfig;
+
+
+----- MISSING: src\middleware.ts -----
+
+----- MISSING: middleware.ts -----
+
+===== FILE: src\components\providers.tsx =====
+"use client";
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { dictionaryFor, detectBrowserLocale, translate, type TranslationKey } from "@/lib/i18n";
+import { formatBytes, formatDate, formatDuration, formatNumber, formatRelative, formatTime } from "@/lib/utils";
+
+export type Theme = "dark" | "light" | "system";
+
+export type SessionUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  email: string | null;
+  phone: string | null;
+  avatarKey: string | null;
+  avatarUrl: string | null;
+  coverKey: string | null;
+  bio: string | null;
+  links: { label: string; url: string }[];
+  role: string;
+  isCreator: boolean;
+  showJoinedDate: boolean;
+  followersCount: number;
+  followingCount: number;
+  createdAt: string;
+  theme: Theme;
+  locale: string;
+  autoplay: boolean;
+  dataSaver: boolean;
+  notifications: Record<string, boolean>;
+  privacy: Record<string, string>;
+};
+
+type Toast = { id: string; text: string; tone: "info" | "success" | "error" };
+
+type Ctx = {
+  user: SessionUser | null;
+  setUser: (user: SessionUser | null) => void;
+  authLoading: boolean;
+  refreshUser: () => Promise<void>;
+  locale: string;
+  setLocale: (locale: string) => void;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+  t: (key: TranslationKey, vars?: Record<string, string | number>) => string;
+  fmt: {
+    number: (n: number) => string;
+    date: (d: string | Date, opts?: Intl.DateTimeFormatOptions) => string;
+    time: (d: string | Date) => string;
+    relative: (d: string | Date) => string;
+    duration: (ms?: number | null) => string;
+    bytes: (b: number) => string;
+  };
+  toast: (text: string, tone?: Toast["tone"]) => void;
+  toasts: Toast[];
+  online: boolean;
+  queryClient: QueryClient;
+};
+
+const AppCtx = createContext<Ctx | null>(null);
+
+const THEME_KEY = "uzon.theme";
+const LOCALE_KEY = "uzon.locale";
+
+export function AppProviders({ children }: { children: ReactNode }) {
+  const queryClient = useMemo(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 20_000,
+            retry: 1,
+            refetchOnWindowFocus: false,
+          },
+          mutations: { retry: 0 },
+        },
+      }),
+    [],
+  );
+
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [theme, setThemeState] = useState<Theme>("dark");
+  const [locale, setLocaleState] = useState<string>("ru");
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [online, setOnline] = useState(true);
+
+  const loadSession = useCallback(async () => {
+    setAuthLoading(true);
+    try {
+      const res = await fetch("/api/auth", { cache: "no-store" });
+      if (res.ok) {
+        const data = (await res.json()) as { user: SessionUser | null };
+        setUser(data.user);
+        if (data.user) {
+          setThemeState((data.user.theme as Theme) ?? "system");
+          setLocaleState(data.user.locale ?? "ru");
+          return;
+        }
+      }
+      setUser(null);
+    } catch {
+      setUser(null);
+    } finally {
+      setAuthLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSession();
+  }, [loadSession]);
+
+  // Local overrides are applied before the session arrives to avoid a flash.
+  useEffect(() => {
+    const storedTheme = localStorage.getItem(THEME_KEY) as Theme | null;
+    const storedLocale = localStorage.getItem(LOCALE_KEY);
+    if (!storedLocale) localStorage.setItem(LOCALE_KEY, detectBrowserLocale());
+    if (storedTheme) setThemeState(storedTheme);
+    setLocaleState(storedLocale ?? detectBrowserLocale());
+    setOnline(navigator.onLine);
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    localStorage.setItem(LOCALE_KEY, locale);
+  }, [locale]);
+
+  const toast = useCallback((text: string, tone: Toast["tone"] = "info") => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts((prev) => [...prev.slice(-2), { id, text, tone }]);
+    window.setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3600);
+  }, []);
+
+  const value = useMemo<Ctx>(
+    () => ({
+      user,
+      setUser,
+      authLoading,
+      refreshUser: loadSession,
+      locale,
+      setLocale: setLocaleState,
+      theme,
+      setTheme: setThemeState,
+      t: (key, vars) => translate(locale, key, vars),
+      fmt: {
+        number: (n) => formatNumber(n, locale),
+        date: (d, opts) => formatDate(d, locale, opts),
+        time: (d) => formatTime(d, locale),
+        relative: (d) => formatRelative(d, locale),
+        duration: (ms) => formatDuration(ms),
+        bytes: (b) => formatBytes(b, locale),
+      },
+      toast,
+      toasts,
+      online,
+      queryClient,
+    }),
+    [user, authLoading, loadSession, locale, theme, toast, toasts, online, queryClient],
+  );
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppCtx.Provider value={value}>
+        {children}
+        <ToastHost />
+      </AppCtx.Provider>
+    </QueryClientProvider>
+  );
+}
+
+function ToastHost() {
+  const { toasts } = useApp();
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-24 z-[100] flex flex-col items-center gap-2 px-4 md:bottom-8">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          role="status"
+          className={`animate-fade-up pointer-events-auto max-w-md rounded-xl border px-4 py-2.5 text-sm shadow-lg ${
+            t.tone === "error"
+              ? "border-danger/40 bg-danger/15 text-danger"
+              : t.tone === "success"
+                ? "border-success/40 bg-success/15 text-success"
+                : "border-line bg-surface text-ink"
+          }`}
+        >
+          {t.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function useApp(): Ctx {
+  const ctx = useContext(AppCtx);
+  if (!ctx) throw new Error("useApp must be used inside AppProviders");
+  return ctx;
+}
+
+export function useDictionary() {
+  const { locale } = useApp();
+  return dictionaryFor(locale);
+}
+
+
+===== FILE: src\components\PwaRegister.tsx =====
+"use client";
+
+import { useEffect } from "react";
+
+export function PwaRegister() {
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then((reg) => console.log("SW registered:", reg.scope))
+        .catch((err) => console.error("SW registration failed:", err));
+    }
+  }, []);
+
+  return null;
+}
+
+===== FILE: src\lib\client\api.ts =====
+import { z } from "zod";
+
+export class ClientApiError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+const errorShape = z.object({ error: z.object({ code: z.string(), message: z.string().optional() }) });
+
+async function parseResponse<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  let data: unknown = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+  if (!res.ok) {
+    const parsed = errorShape.safeParse(data);
+    throw new ClientApiError(
+      res.status,
+      parsed.success ? parsed.data.error.code : "http_error",
+      parsed.success ? (parsed.data.error.message ?? parsed.data.error.code) : `Request failed (${res.status})`,
+    );
+  }
+  return data as T;
+}
+
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    ...init,
+    headers: {
+      ...(init?.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
+      ...(init?.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+  return parseResponse<T>(res);
+}
+
+export const post = <T>(path: string, body?: unknown) =>
+  api<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
+export const patch = <T>(path: string, body?: unknown) =>
+  api<T>(path, { method: "PATCH", body: body === undefined ? undefined : JSON.stringify(body) });
+export const del = <T>(path: string, body?: unknown) =>
+  api<T>(path, { method: "DELETE", body: body === undefined ? undefined : JSON.stringify(body) });
+export const get = <T>(path: string) => api<T>(path, { method: "GET" });
+
+/** Загрузка напрямую в S3 (Selectel) через presigned URL. */
+export async function uploadMedia(
+  file: File,
+  opts: {
+    purpose: "image" | "video" | "audio" | "file" | "avatar" | "cover" | "story" | "clip";
+    visibility?: string;
+    onProgress?: (percent: number) => void;
+    signal?: AbortSignal;
+  },
+): Promise<{ media: { id: string; key: string; url: string; kind: string; mime: string; size: number } }> {
+  // 1. Определяем расширение по MIME
+  const mime = file.type.toLowerCase().split(";")[0].trim();
+  const extMap: Record<string, string> = {
+    "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif",
+    "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
+    "audio/mpeg": "mp3", "audio/webm": "weba", "audio/ogg": "ogg", "audio/mp4": "m4a", "audio/wav": "wav",
+    "application/pdf": "pdf", "text/plain": "txt", "application/zip": "zip",
+  };
+  const ext = extMap[mime] ?? "bin";
+
+  // 2. Получаем presigned URL от нашего API
+  const { presignedUrl, key, mediaId } = await post<{ presignedUrl: string; key: string; mediaId: string }>(
+    "/api/upload/presigned",
+    { contentType: mime, ext, purpose: opts.purpose, visibility: opts.visibility }
+  );
+
+  // 3. Загружаем файл напрямую в S3 (с прогрессом)
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", presignedUrl);
+    xhr.setRequestHeader("Content-Type", mime);
+    
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) opts.onProgress?.(Math.round((event.loaded / event.total) * 100));
+    };
+
+    xhr.onload = async () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        // Файл загружен, возвращаем данные
+        resolve({
+          media: {
+            id: mediaId,
+            key,
+            url: `/api/media/${key}`,
+            kind: opts.purpose === "image" ? "image" : opts.purpose === "video" || opts.purpose === "clip" ? "video" : "file",
+            mime,
+            size: file.size,
+          },
+        });
+      } else {
+        reject(new ClientApiError(xhr.status, "upload_failed", "Upload to S3 failed"));
+      }
+    };
+
+    xhr.onerror = () => reject(new ClientApiError(0, "network_error", "Network error during upload"));
+    xhr.onabort = () => reject(new ClientApiError(0, "aborted", "Upload cancelled"));
+    opts.signal?.addEventListener("abort", () => xhr.abort());
+    xhr.send(file);
+  });
+}
+
+export const qk = {
+  me: ["me"] as const,
+  config: ["config"] as const,
+  feed: (tab: string, cursor?: string) => ["feed", tab, cursor] as const,
+  stories: ["stories"] as const,
+  storyTray: ["story-tray"] as const,
+  conversations: ["conversations"] as const,
+  messages: (id: string) => ["messages", id] as const,
+  conversation: (id: string) => ["conversation", id] as const,
+  clips: (cursor?: string) => ["clips", cursor] as const,
+  videos: (params: string) => ["videos", params] as const,
+  video: (id: string) => ["video", id] as const,
+  profile: (username: string) => ["profile", username] as const,
+  userPosts: (id: string, kind: string) => ["user-content", id, kind] as const,
+  notifications: ["notifications"] as const,
+  search: (q: string, type: string) => ["search", q, type] as const,
+  comments: (type: string, id: string) => ["comments", type, id] as const,
+  playlists: ["playlists"] as const,
+  studio: (period: number) => ["studio", period] as const,
+  reports: (status: string) => ["admin-reports", status] as const,
+  sessions: ["sessions"] as const,
+  contacts: ["contacts"] as const,
+  blocks: ["blocks"] as const,
+  calls: ["calls"] as const,
+  callSignals: (id: string) => ["call-signals", id] as const,
+  call: (id: string) => ["call", id] as const,
+  saved: ["saved"] as const,
+  history: ["history"] as const,
+  channel: (slug: string) => ["channel", slug] as const,
+  suggestions: ["suggestions"] as const,
+};
+
+===== FILE: src\components\stories.tsx =====
+"use client";
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight, Eye, Plus, Trash2, X, Flag } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import { useApp } from "@/components/providers";
+import { Avatar, Button, EmptyState, Field, IconButton, Input, Modal, Progress, Select, Skeleton, Textarea } from "@/components/ui";
+import { del, get, post as postApi, qk, uploadMedia } from "@/lib/client/api";
+import { ReportModal } from "@/components/post";
+import { cn } from "@/lib/utils";
+
+export type StoryItem = {
+  id: string;
+  userId: string;
+  author: { id: string; username: string; displayName: string; avatarUrl: string | null };
+  mediaUrl: string | null;
+  mediaKind: string;
+  caption: string | null;
+  overlayText: string | null;
+  audience: string;
+  viewCount: number;
+  seenByViewer: boolean;
+  isMine: boolean;
+  createdAt: string;
+  expiresAt: string;
+};
+type TrayGroup = { userId: string; author: StoryItem["author"]; hasUnseen: boolean; count: number; stories: StoryItem[] };
+
+export function StoryTray({ onOpenCreate }: { onOpenCreate?: () => void }) {
+  const { t, user } = useApp();
+  const query = useQuery({ queryKey: qk.storyTray, queryFn: () => get<{ tray: TrayGroup[] }>("/api/stories") });
+  const [active, setActive] = useState<{ groups: TrayGroup[]; groupIndex: number; storyIndex: number } | null>(null);
+
+  const open = (groups: TrayGroup[], groupIndex: number) => setActive({ groups, groupIndex, storyIndex: 0 });
+
+  if (query.isLoading) {
+    return (
+      <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} className="h-16 w-16 rounded-full" />
+        ))}
+      </div>
+    );
+  }
+
+  const groups = query.data?.tray ?? [];
+  return (
+    <section aria-label={t("feed.stories")}>
+      <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+        <button onClick={onOpenCreate} className="flex w-16 shrink-0 flex-col items-center gap-1.5">
+          <span className="relative flex h-16 w-16 items-center justify-center rounded-full border-2 border-dashed border-line bg-surface text-muted transition hover:border-brand hover:text-brand">
+            <Plus className="h-6 w-6" />
+          </span>
+          <span className="w-16 truncate text-center text-[10px] text-muted">{t("story.add")}</span>
+        </button>
+        {user && (
+          <button
+            onClick={() => {
+              const mine = groups.find((g) => g.userId === user.id);
+              if (mine) open(groups, groups.indexOf(mine));
+              else onOpenCreate?.();
+            }}
+            className="flex w-16 shrink-0 flex-col items-center gap-1.5"
+          >
+            <Avatar name={user.displayName} url={user.avatarUrl} size={64} ring={groups.some((g) => g.userId === user.id && g.hasUnseen) ? "story" : null} />
+            <span className="w-16 truncate text-center text-[10px] text-muted">{t("story.yourStory")}</span>
+          </button>
+        )}
+        {groups
+          .filter((g) => g.userId !== user?.id)
+          .map((group, index) => (
+            <button key={group.userId} onClick={() => open(groups, index)} className="flex w-16 shrink-0 flex-col items-center gap-1.5">
+              <Avatar name={group.author.displayName} url={group.author.avatarUrl} size={64} ring={group.hasUnseen ? "story" : null} />
+              <span className="w-16 truncate text-center text-[10px] text-muted">{group.author.displayName}</span>
+            </button>
+          ))}
+      </div>
+      {groups.length === 0 && (
+        <p className="rounded-xl border border-dashed border-line px-3 py-2 text-xs text-muted">{t("story.empty")}</p>
+      )}
+      {active && (
+        <StoryViewer
+          groups={active.groups}
+          startIndex={active.groupIndex}
+          onClose={() => setActive(null)}
+        />
+      )}
+    </section>
+  );
+}
+
+export function StoryViewer({ groups, startIndex, onClose }: { groups: TrayGroup[]; startIndex: number; onClose: () => void }) {
+  const { t, fmt, toast } = useApp();
+  const queryClient = useQueryClient();
+  const [groupIndex, setGroupIndex] = useState(startIndex);
+  const [storyIndex, setStoryIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [viewers, setViewers] = useState<{ userId: string; username: string; displayName: string; viewedAt: string }[] | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+  const timer = useRef<number | null>(null);
+
+  const group = groups[groupIndex];
+  const story = group?.stories[storyIndex];
+
+  const markViewed = useMutation({
+    mutationFn: (id: string) => postApi(`/api/stories/${id}`, { action: "view" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: qk.storyTray }),
+  });
+  const deleteStory = useMutation({
+    mutationFn: (id: string) => del(`/api/stories/${id}`),
+    onSuccess: () => {
+      toast(t("story.delete"), "success");
+      queryClient.invalidateQueries({ queryKey: qk.storyTray });
+      next();
+    },
+  });
+
+  const next = () => {
+    setProgress(0);
+    if (!group) return onClose();
+    if (storyIndex + 1 < group.stories.length) return setStoryIndex(storyIndex + 1);
+    if (groupIndex + 1 < groups.length) {
+      setStoryIndex(0);
+      return setGroupIndex(groupIndex + 1);
+    }
+    onClose();
+  };
+  const prev = () => {
+    setProgress(0);
+    if (storyIndex > 0) return setStoryIndex(storyIndex - 1);
+    if (groupIndex > 0) {
+      setStoryIndex(0);
+      setGroupIndex(groupIndex - 1);
+    }
+  };
+
+  useEffect(() => {
+    if (!story) return;
+    markViewed.mutate(story.id);
+    const duration = story.mediaKind === "video" ? 15_000 : 6_000;
+    const started = Date.now();
+    const tick = () => {
+      if (paused) return;
+      const value = Math.min(100, ((Date.now() - started) / duration) * 100);
+      setProgress(value);
+      if (value >= 100) next();
+    };
+    timer.current = window.setInterval(tick, 100);
+    return () => {
+      if (timer.current) window.clearInterval(timer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [story?.id, paused]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowRight") next();
+      if (event.key === "ArrowLeft") prev();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupIndex, storyIndex, groups.length]);
+
+  useEffect(() => {
+    if (!story?.isMine) {
+      setViewers(null);
+      return;
+    }
+    void get<{ viewers?: { userId: string; username: string; displayName: string; viewedAt: string }[] }>(`/api/stories/${story.id}`).then((data) =>
+      setViewers(data.viewers ?? []),
+    );
+  }, [story?.id, story?.isMine]);
+
+  if (!story) return null;
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/95" role="dialog" aria-modal="true" aria-label={t("feed.stories")}>
+      <button className="absolute inset-0 h-full w-full cursor-default" onClick={onClose} aria-label={t("common.close")} tabIndex={-1} />
+      <div className="relative flex h-full w-full max-w-md flex-col md:h-[92vh] md:rounded-3xl md:border md:border-line">
+        <div className="absolute inset-x-0 top-0 z-10 space-y-2 p-3">
+          <div className="flex gap-1">
+            {group!.stories.map((_, index) => (
+              <Progress key={index} value={index < storyIndex ? 100 : index === storyIndex ? progress : 0} className="h-0.5 flex-1 bg-white/25" />
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <Link href={`/u/${story.author.username}`} onClick={onClose}>
+              <Avatar name={story.author.displayName} url={story.author.avatarUrl} size={32} />
+            </Link>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-semibold text-white">{story.author.displayName}</p>
+              <p className="text-[10px] text-white/60">{fmt.relative(story.createdAt)}</p>
+            </div>
+            {story.isMine ? (
+              <IconButton label={t("story.delete")} className="text-white hover:bg-white/10" onClick={() => deleteStory.mutate(story.id)}>
+                <Trash2 className="h-4 w-4" />
+              </IconButton>
+            ) : (
+              <IconButton label={t("common.report")} className="text-white hover:bg-white/10" onClick={() => setReportOpen(true)}>
+                <Flag className="h-4 w-4" />
+              </IconButton>
+            )}
+            <IconButton label={t("common.close")} className="text-white hover:bg-white/10" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </IconButton>
+          </div>
+        </div>
+
+        <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-black" onClick={() => setPaused((p) => !p)}>
+          {story.mediaUrl &&
+            (story.mediaKind === "video" ? (
+              <video src={story.mediaUrl} className="h-full w-full object-contain" autoPlay playsInline loop muted={paused} />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={story.mediaUrl} alt={story.caption ?? t("feed.stories")} className="h-full w-full object-contain" />
+            ))}
+          {story.overlayText && (
+            <p className="pointer-events-none absolute inset-x-6 bottom-24 rounded-xl bg-black/50 px-3 py-2 text-center text-lg font-semibold text-white">
+              {story.overlayText}
+            </p>
+          )}
+          <button
+            aria-label={t("common.back")}
+            onClick={(event) => {
+              event.stopPropagation();
+              prev();
+            }}
+            className="absolute left-0 top-0 h-full w-1/3 cursor-w-resize"
+          />
+          <button
+            aria-label={t("common.next")}
+            onClick={(event) => {
+              event.stopPropagation();
+              next();
+            }}
+            className="absolute right-0 top-0 h-full w-1/3 cursor-e-resize"
+          />
+          <div className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-white/50">
+            <ChevronLeft className="h-5 w-5" />
+          </div>
+          <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-white/50">
+            <ChevronRight className="h-5 w-5" />
+          </div>
+        </div>
+
+        <div className="safe-bottom border-t border-white/10 bg-black/70 px-4 py-3">
+          {story.caption && <p className="mb-2 text-sm text-white">{story.caption}</p>}
+          {story.isMine ? (
+            <div className="flex items-center gap-2 text-xs text-white/80">
+              <Eye className="h-4 w-4" />
+              <span>
+                {t("story.viewers")}: {story.viewCount}
+              </span>
+              <span className="ml-auto text-white/50">
+                {t("story.expires", { hours: Math.max(0, Math.round((new Date(story.expiresAt).getTime() - Date.now()) / 3_600_000)) })}
+              </span>
+            </div>
+          ) : (
+            <p className="text-[11px] text-white/50">{t("clips.swipe")}</p>
+          )}
+          {story.isMine && viewers && (
+            <div className="no-scrollbar mt-2 flex max-h-24 gap-2 overflow-y-auto">
+              {viewers.length === 0 && <span className="text-xs text-white/50">{t("story.noViewers")}</span>}
+              {viewers.map((viewer) => (
+                <Link key={viewer.userId} href={`/u/${viewer.username}`} onClick={onClose} className={cn("flex items-center gap-1.5 rounded-full bg-white/10 px-2 py-1")}>
+                  <Avatar name={viewer.displayName} size={18} />
+                  <span className="text-[10px] text-white/80">@{viewer.username}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      <ReportModal open={reportOpen} onClose={() => setReportOpen(false)} entityType="story" entityId={story.id} />
+    </div>
+  );
+}
+
+export function StoryComposer({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t, toast } = useApp();
+  const queryClient = useQueryClient();
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [caption, setCaption] = useState("");
+  const [overlay, setOverlay] = useState("");
+  const [audience, setAudience] = useState("public");
+  const [progress, setProgress] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const reset = () => {
+    setFile(null);
+    setPreview(null);
+    setCaption("");
+    setOverlay("");
+    setProgress(0);
+  };
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      if (!file) throw new Error(t("create.chooseFile"));
+      setProgress(5);
+      const kind = file.type.startsWith("video") ? "video" : "image";
+      const uploaded = await uploadMedia(file, { purpose: "story", visibility: audience, onProgress: setProgress });
+      setProgress(95);
+      return postApi<{ story: StoryItem }>("/api/stories", {
+        mediaId: uploaded.media.id,
+        caption,
+        overlayText: overlay,
+        audience,
+        kind,
+      } as never);
+    },
+    onSuccess: () => {
+      toast(t("create.success"), "success");
+      queryClient.invalidateQueries({ queryKey: qk.storyTray });
+      reset();
+      onClose();
+    },
+    onError: (error: Error) => {
+      setProgress(0);
+      toast(error.message || t("create.uploadFailed"), "error");
+    },
+  });
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => {
+        reset();
+        onClose();
+      }}
+      title={t("story.add")}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button onClick={() => mutation.mutate()} loading={mutation.isPending} disabled={!file}>
+            {t("common.publish")}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*,video/*"
+          className="hidden"
+          onChange={(event) => {
+            const selected = event.target.files?.[0] ?? null;
+            setFile(selected);
+            setPreview(selected ? URL.createObjectURL(selected) : null);
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="flex h-44 w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-line bg-surface2 text-xs text-muted hover:border-brand hover:text-brand"
+        >
+          {preview ? (
+            file?.type.startsWith("video") ? (
+              <video src={preview} className="h-40 rounded-xl object-contain" muted playsInline />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={preview} alt={t("create.preview")} className="h-40 rounded-xl object-contain" />
+            )
+          ) : (
+            <>
+              <Plus className="h-6 w-6" />
+              {t("create.chooseFile")}
+            </>
+          )}
+        </button>
+        <Field label={t("story.overlay")}>
+          <Input value={overlay} onChange={(event) => setOverlay(event.target.value)} maxLength={200} placeholder={t("story.overlay")} />
+        </Field>
+        <Field label={t("story.caption")}>
+          <Textarea rows={2} value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={400} />
+        </Field>
+        <Field label={t("post.audience")}>
+          <Select value={audience} onChange={(event) => setAudience(event.target.value)}>
+            <option value="public">{t("settings.audiencePublic")}</option>
+            <option value="followers">{t("settings.audienceFollowers")}</option>
+            <option value="contacts">{t("settings.audienceContacts")}</option>
+            <option value="private">{t("settings.audiencePrivate")}</option>
+          </Select>
+        </Field>
+        {mutation.isPending && <Progress value={progress} />}
+        <p className="text-[11px] text-muted">{t("story.expires", { hours: 24 })}</p>
+        {!open && <EmptyState title={t("common.empty")} />}
+      </div>
+    </Modal>
+  );
+}
+
+
+===== FILE: src\components\post.tsx =====
+"use client";
+
+import Link from "next/link";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Bookmark, Heart, MessageCircle, MoreHorizontal, PlayCircle, Send, Trash2, Flag, Ban } from "lucide-react";
+import { useState } from "react";
+import { useApp } from "@/components/providers";
+import { Avatar, Button, EmptyState, ErrorState, IconButton, Input, Menu, MenuItem, Modal, Skeleton, Textarea } from "@/components/ui";
+import { del, get, post as postApi, qk } from "@/lib/client/api";
+import type { PostPayload } from "@/lib/serialize";
+import { cn } from "@/lib/utils";
+
+export type { PostPayload };
+
+export function PostSkeleton() {
+  return (
+    <div className="space-y-3 rounded-2xl border border-line bg-surface p-4">
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-10 w-10 rounded-full" />
+        <div className="flex-1 space-y-2">
+          <Skeleton className="h-3 w-32" />
+          <Skeleton className="h-2.5 w-20" />
+        </div>
+      </div>
+      <Skeleton className="h-3 w-full" />
+      <Skeleton className="h-48 w-full" />
+    </div>
+  );
+}
+
+export function PostCard({ post, source = "feed" }: { post: PostPayload; source?: string }) {
+  const { t, fmt, user, toast, locale } = useApp();
+  const queryClient = useQueryClient();
+  const [showComments, setShowComments] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+
+  const likeMutation = useMutation({
+    mutationFn: () => postApi<{ liked: boolean; likeCount: number }>(`/api/posts/${post.id}/actions`, { action: "like", source }),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ["feed"] });
+      return null;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueriesData<{ posts?: PostPayload[] }>({}, (old) => {
+        if (!old?.posts) return old;
+        return {
+          ...old,
+          posts: old.posts.map((p) => (p.id === post.id ? { ...p, likedByViewer: data.liked, likeCount: data.likeCount } : p)),
+        };
+      });
+    },
+    onError: () => toast(t("common.error"), "error"),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: () => postApi(`/api/posts/${post.id}/actions`, { action: post.savedByViewer ? "unsave" : "save" }),
+    onSuccess: () => {
+      toast(post.savedByViewer ? t("common.saved") : t("post.saved"), "success");
+      queryClient.invalidateQueries({ queryKey: qk.saved });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => del(`/api/posts/${post.id}`),
+    onSuccess: () => {
+      toast(t("post.deleted"), "success");
+      queryClient.invalidateQueries({ queryKey: ["feed"] });
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
+    },
+  });
+
+  const blockMutation = useMutation({
+    mutationFn: (action: "block") => postApi(`/api/users/${post.author.username}/actions`, { action }),
+    onSuccess: () => {
+      toast(t("common.block"), "success");
+      queryClient.invalidateQueries({ queryKey: ["feed"] });
+    },
+  });
+
+  const comments = useQuery({
+    queryKey: qk.comments("post", post.id),
+    queryFn: () => get<{ comments: CommentRow[] }>(`/api/comments?entityType=post&entityId=${post.id}`),
+    enabled: showComments,
+  });
+
+  return (
+    <article className="animate-fade-up rounded-2xl border border-line bg-surface">
+      <header className="flex items-start gap-3 px-4 pt-3.5">
+        <Link href={`/u/${post.author.username}`} className="shrink-0">
+          <Avatar name={post.author.displayName} url={post.author.avatarUrl} size={40} />
+        </Link>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <Link href={`/u/${post.author.username}`} className="truncate text-sm font-semibold text-ink hover:underline">
+              {post.author.displayName}
+            </Link>
+            {post.author.isCreator && <span className="text-[10px] text-brand">✦</span>}
+          </div>
+          <p className="truncate text-[11px] text-muted">
+            @{post.author.username} · {fmt.relative(post.createdAt)}
+            {post.audience !== "public" && ` · ${t(`settings.audience${post.audience === "followers" ? "Followers" : post.audience === "contacts" ? "Contacts" : "Private"}` as never)}`}
+          </p>
+        </div>
+        {post.conversation && (
+          <Link href={`/c/${post.conversation.slug ?? post.conversation.id}`}>
+            <span className="rounded-full border border-line px-2 py-0.5 text-[10px] text-muted hover:text-brand">
+              {post.conversation.title}
+            </span>
+          </Link>
+        )}
+        <Menu
+          trigger={({ toggle }) => (
+            <IconButton label={t("common.edit")} onClick={toggle}>
+              <MoreHorizontal className="h-4 w-4" />
+            </IconButton>
+          )}
+        >
+          <MenuItem icon={<Flag className="h-3.5 w-3.5" />} onClick={() => setReportOpen(true)}>
+            {t("common.report")}
+          </MenuItem>
+          {post.author.id !== user?.id && (
+            <MenuItem icon={<Ban className="h-3.5 w-3.5" />} tone="danger" onClick={() => blockMutation.mutate("block")}>
+              {t("common.block")} @{post.author.username}
+            </MenuItem>
+          )}
+          {post.isMine && (
+            <MenuItem icon={<Trash2 className="h-3.5 w-3.5" />} tone="danger" onClick={() => deleteMutation.mutate()}>
+              {t("common.delete")}
+            </MenuItem>
+          )}
+        </Menu>
+      </header>
+
+      {post.text && <p className="whitespace-pre-wrap px-4 py-3 text-sm leading-relaxed text-ink">{post.text}</p>}
+
+      {post.media.length > 0 && (
+        <div className={cn("grid gap-0.5 overflow-hidden rounded-t-none", post.media.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
+          {post.media.slice(0, 4).map((m) =>
+            m.kind === "video" ? (
+              <Link key={m.id} href={post.video ? `/videos/${post.video.id}` : "/clips"} className="relative block bg-black">
+                <video src={m.url} muted playsInline preload="metadata" className="max-h-[420px] w-full object-cover" />
+                <PlayCircle className="absolute left-1/2 top-1/2 h-12 w-12 -translate-x-1/2 -translate-y-1/2 text-white/80" />
+              </Link>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={m.id}
+                src={m.url}
+                alt={post.text?.slice(0, 80) ?? "UZON media"}
+                loading="lazy"
+                className="max-h-[520px] w-full bg-surface2 object-cover"
+              />
+            ),
+          )}
+        </div>
+      )}
+
+      {post.video && post.media.length === 0 && (
+        <Link href={post.video.kind === "clip" ? "/clips" : `/videos/${post.video.id}`} className="mx-4 mb-2 flex items-center gap-3 rounded-xl border border-line bg-surface2 p-3">
+          <PlayCircle className="h-8 w-8 text-brand" />
+          <span className="min-w-0">
+            <span className="block truncate text-xs font-semibold text-ink">{post.video.title}</span>
+            <span className="block text-[11px] text-muted">
+              {fmt.number(post.video.viewCount)} {t("video.views")} · {fmt.duration(post.video.durationMs)}
+            </span>
+          </span>
+        </Link>
+      )}
+
+      <div className="flex items-center gap-1 px-2 py-2">
+        <ActionButton
+          active={post.likedByViewer}
+          label={t("post.comment")}
+          onClick={() => likeMutation.mutate()}
+          pending={likeMutation.isPending}
+          icon={<Heart className={cn("h-[18px] w-[18px]", post.likedByViewer && "fill-danger text-danger")} />}
+          text={fmt.number(post.likeCount)}
+        />
+        <ActionButton
+          label={t("post.comments")}
+          onClick={() => setShowComments((v) => !v)}
+          icon={<MessageCircle className="h-[18px] w-[18px]" />}
+          text={fmt.number(post.commentCount)}
+        />
+        <ActionButton
+          label={t("common.save")}
+          active={post.savedByViewer}
+          onClick={() => saveMutation.mutate()}
+          icon={<Bookmark className={cn("h-[18px] w-[18px]", post.savedByViewer && "fill-brand text-brand")} />}
+        />
+        <ActionButton
+          label={t("common.share")}
+          onClick={() => {
+            const url = `${window.location.origin}/post/${post.id}`;
+            void navigator.clipboard?.writeText(url);
+            toast(t("common.copied"), "success");
+          }}
+          icon={<Send className="h-[18px] w-[18px]" />}
+        />
+      </div>
+
+      {showComments && (
+        <div className="border-t border-line px-4 py-3">
+          {comments.isLoading && <Skeleton className="h-16 w-full" />}
+          {comments.isError && <ErrorState message={t("common.error")} onRetry={() => comments.refetch()} />}
+          {comments.data && comments.data.comments.length === 0 && (
+            <p className="py-2 text-xs text-muted">{t("post.noComments")}</p>
+          )}
+          <div className="space-y-3">
+            {comments.data?.comments.map((comment) => (
+              <div key={comment.id} className="flex gap-2.5">
+                <Avatar name={comment.author.displayName} url={comment.author.avatarUrl} size={30} />
+                <div className="min-w-0 flex-1 rounded-xl bg-surface2 px-3 py-2">
+                  <p className="text-xs font-semibold text-ink">
+                    <Link href={`/u/${comment.author.username}`} className="hover:underline">
+                      {comment.author.displayName}
+                    </Link>
+                    <span className="ml-2 font-normal text-muted">{fmt.relative(comment.createdAt)}</span>
+                  </p>
+                  <p className="text-sm text-ink">{comment.text}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          {post.commentsEnabled ? (
+            <CommentForm
+              entityType="post"
+              entityId={post.id}
+              onDone={() => {
+                queryClient.invalidateQueries({ queryKey: qk.comments("post", post.id) });
+                queryClient.invalidateQueries({ queryKey: ["feed"] });
+              }}
+            />
+          ) : (
+            <p className="pt-3 text-xs text-muted">{t("chat.noPermission")}</p>
+          )}
+        </div>
+      )}
+
+      <ReportModal open={reportOpen} onClose={() => setReportOpen(false)} entityType="post" entityId={post.id} locale={locale} />
+      {deleteMutation.isPending && <div className="px-4 pb-3 text-xs text-muted">{t("common.loading")}</div>}
+      {blockMutation.isPending && <div className="px-4 pb-3 text-xs text-muted">{t("common.loading")}</div>}
+    </article>
+  );
+}
+
+export type CommentRow = {
+  id: string;
+  text: string;
+  likeCount: number;
+  likedByViewer?: boolean;
+  createdAt: string;
+  isMine?: boolean;
+  author: { id: string; username: string; displayName: string; avatarUrl: string | null };
+};
+
+function ActionButton({
+  icon,
+  text,
+  label,
+  onClick,
+  active,
+  pending,
+}: {
+  icon: ReactNodeLike;
+  text?: string;
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  pending?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+      disabled={pending}
+      className={cn(
+        "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition hover:bg-surface2 disabled:opacity-60",
+        active ? "text-brand" : "text-muted",
+      )}
+    >
+      {icon}
+      {text}
+    </button>
+  );
+}
+
+type ReactNodeLike = Parameters<typeof IconButton>[0]["children"];
+
+export function CommentForm({ entityType, entityId, onDone }: { entityType: "post" | "video"; entityId: string; onDone: () => void }) {
+  const { t, toast } = useApp();
+  const [text, setText] = useState("");
+  const mutation = useMutation({
+    mutationFn: () => postApi(`/api/comments`, { entityType, entityId, text }),
+    onSuccess: () => {
+      setText("");
+      onDone();
+    },
+    onError: (error: Error) => toast(error.message || t("common.error"), "error"),
+  });
+  return (
+    <form
+      className="mt-3 flex items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (text.trim()) mutation.mutate();
+      }}
+    >
+      <Input
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        placeholder={t("post.writeComment")}
+        aria-label={t("post.writeComment")}
+        maxLength={1000}
+      />
+      <Button type="submit" size="sm" disabled={!text.trim()} loading={mutation.isPending}>
+        {t("common.send")}
+      </Button>
+    </form>
+  );
+}
+
+export function ReportModal({
+  open,
+  onClose,
+  entityType,
+  entityId,
+  locale,
+}: {
+  open: boolean;
+  onClose: () => void;
+  entityType: string;
+  entityId: string;
+  locale?: string;
+}) {
+  const { t, toast } = useApp();
+  const [reason, setReason] = useState("spam");
+  const [details, setDetails] = useState("");
+  void locale;
+  const mutation = useMutation({
+    mutationFn: () => postApi("/api/reports", { entityType, entityId, reason, details }),
+    onSuccess: () => {
+      toast(t("report.sent"), "success");
+      setDetails("");
+      onClose();
+    },
+    onError: (error: Error) => toast(error.message, "error"),
+  });
+  const reasons = [
+    { value: "spam", label: t("report.reasonSpam") },
+    { value: "harassment", label: t("report.reasonHarassment") },
+    { value: "nudity", label: t("report.reasonNudity") },
+    { value: "violence", label: t("report.reasonViolence") },
+    { value: "copyright", label: t("report.reasonCopyright") },
+    { value: "other", label: t("report.reasonOther") },
+  ];
+  return (
+    <Modal open={open} onClose={onClose} title={t("common.report")} footer={<Button onClick={() => mutation.mutate()} loading={mutation.isPending}>{t("report.submit")}</Button>}>
+      <div className="space-y-3">
+        <div className="grid gap-2">
+          {reasons.map((item) => (
+            <label key={item.value} className={cn("flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm", reason === item.value ? "border-brand bg-brandsoft" : "border-line")}>
+              <input type="radio" name="reason" value={item.value} checked={reason === item.value} onChange={() => setReason(item.value)} className="accent-[var(--brand)]" />
+              {item.label}
+            </label>
+          ))}
+        </div>
+        <Textarea rows={3} value={details} onChange={(event) => setDetails(event.target.value)} placeholder={t("report.details")} aria-label={t("report.details")} />
+      </div>
+    </Modal>
+  );
+}
+
+export function Composer({ onCreated, conversationId, channels }: { onCreated?: () => void; conversationId?: string; channels?: { id: string; title: string; slug: string | null }[] }) {
+  const { t, toast, user } = useApp();
+  const queryClient = useQueryClient();
+  const [text, setText] = useState("");
+  const [audience, setAudience] = useState<"public" | "followers" | "contacts" | "private">("public");
+  const [target, setTarget] = useState<string>("");
+  const mutation = useMutation({
+    mutationFn: () => postApi<{ post: PostPayload }>("/api/posts", { text, audience, conversationId: target || conversationId || undefined }),
+    onSuccess: () => {
+      setText("");
+      toast(t("create.success"), "success");
+      queryClient.invalidateQueries({ queryKey: ["feed"] });
+      onCreated?.();
+    },
+    onError: (error: Error) => toast(error.message, "error"),
+  });
+  return (
+    <div className="rounded-2xl border border-line bg-surface p-3">
+      <div className="flex gap-3">
+        <Avatar name={user?.displayName ?? "UZON"} url={user?.avatarUrl} size={38} />
+        <div className="flex-1 space-y-2">
+          <Textarea
+            rows={2}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            placeholder={t("feed.newPost")}
+            aria-label={t("feed.newPost")}
+            maxLength={4000}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            {channels && channels.length > 0 && (
+              <select
+                value={target}
+                onChange={(event) => setTarget(event.target.value)}
+                aria-label={t("create.channel")}
+                className="h-9 rounded-lg border border-line bg-surface px-2 text-xs text-ink"
+              >
+                <option value="">{t("profile.posts")}</option>
+                {channels.map((channel) => (
+                  <option key={channel.id} value={channel.id}>
+                    {channel.title}
+                  </option>
+                ))}
+              </select>
+            )}
+            <select
+              value={audience}
+              onChange={(event) => setAudience(event.target.value as never)}
+              aria-label={t("post.audience")}
+              className="h-9 rounded-lg border border-line bg-surface px-2 text-xs text-ink"
+            >
+              <option value="public">{t("settings.audiencePublic")}</option>
+              <option value="followers">{t("settings.audienceFollowers")}</option>
+              <option value="contacts">{t("settings.audienceContacts")}</option>
+              <option value="private">{t("settings.audiencePrivate")}</option>
+            </select>
+            <Link href="/create" className="ml-auto text-xs text-brand hover:underline">
+              {t("create.photo")} / {t("create.clip")}
+            </Link>
+            <Button size="sm" onClick={() => mutation.mutate()} loading={mutation.isPending} disabled={!text.trim()}>
+              {t("common.publish")}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function PostsEmpty() {
+  const { t } = useApp();
+  return <EmptyState title={t("feed.empty")} icon={<MessageCircle className="h-8 w-8" />} action={<Link href="/create"><Button size="sm">{t("nav.create")}</Button></Link>} />;
+}
+
+
+===== FILE: src\lib\s3.ts =====
+import { S3Client } from "@aws-sdk/client-s3";
+
+export const s3Client = new S3Client({
+  region: process.env.S3_REGION || "ru-7",
+  endpoint: process.env.S3_ENDPOINT || "https://s3.ru-7.storage.selcloud.ru",
+  credentials: {
+    accessKeyId: process.env.S3_ACCESS_KEY!,
+    secretAccessKey: process.env.S3_SECRET_KEY!,
+  },
+  forcePathStyle: true, // Важно для Selectel
+});
+
+export const S3_BUCKET = process.env.S3_BUCKET || "uzon-media";
+export const S3_PUBLIC_URL = `${process.env.S3_ENDPOINT}/${S3_BUCKET}`;
+
+===== FILE: src\lib\media.ts =====
+import type { media } from "@/db/schema";
+
+export type MediaRow = typeof media.$inferSelect;
+
+// Базовый URL вашего S3-хранилища Selectel (vHosted)
+const S3_BUCKET = process.env.S3_BUCKET || "uzon-media";
+const S3_PUBLIC_URL = "https://adb43e56-5d48-413f-b1e0-b22ead06ebcc.selstorage.ru";
+
+/** Resolves the URL a browser should request for a stored media asset. */
+export function mediaSrc(mediaLike: { key: string; remoteUrl?: string | null } | null | undefined): string | null {
+  if (!mediaLike) return null;
+  if (mediaLike.remoteUrl) return mediaLike.remoteUrl;
+  if (/^https?:\/\//.test(mediaLike.key)) return mediaLike.key;
+  // ИСПРАВЛЕНИЕ: возвращаем прямую ссылку на S3, а не /api/media/...
+  return `${S3_PUBLIC_URL}/${mediaLike.key}`;
+}
+
+export function serializeMedia(m: MediaRow | null | undefined) {
+  if (!m) return null;
+  return {
+    id: m.id,
+    key: m.key,
+    url: mediaSrc(m),
+    mime: m.mime,
+    kind: m.kind,
+    size: m.size,
+    width: m.width,
+    height: m.height,
+    durationMs: m.durationMs,
+    visibility: m.visibility,
+    createdAt: m.createdAt.toISOString(),
+  };
+}
+
+/** Public user shape — never contains phone/email unless explicitly allowed. */
+export function publicUser(row: {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarKey: string | null;
+  bio: string | null;
+  isCreator: boolean;
+  followersCount: number;
+  followingCount: number;
+  lastSeenAt?: Date | null;
+  createdAt?: Date;
+}) {
+  return {
+    id: row.id,
+    username: row.username,
+    displayName: row.displayName,
+    avatarUrl: row.avatarKey ? mediaSrc({ key: row.avatarKey }) : null,
+    bio: row.bio,
+    isCreator: row.isCreator,
+    followersCount: row.followersCount,
+    followingCount: row.followingCount,
+    lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
+    createdAt: row.createdAt?.toISOString() ?? null,
+  };
+}
+
+===== FILE: src\lib\storage.ts =====
+import { createReadStream } from "node:fs";
+import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { ApiError } from "@/lib/http";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+
+const s3Client = new S3Client({
+  region: process.env.S3_REGION || "ru-7",
+  endpoint: process.env.S3_ENDPOINT || "https://s3.ru-7.storage.selcloud.ru",
+  credentials: {
+    accessKeyId: process.env.S3_ACCESS_KEY!,
+    secretAccessKey: process.env.S3_SECRET_KEY!,
+  },
+  forcePathStyle: false,
+});
+
+const S3_BUCKET = process.env.S3_BUCKET || "uzon-media";
+const S3_PUBLIC_URL = `https://${S3_BUCKET}.s3.ru-7.storage.selcloud.ru`;
+
+export const MEDIA_ROOT = process.env.MEDIA_DIR
+  ? path.resolve(process.env.MEDIA_DIR)
+  : path.join(process.cwd(), "uploads");
+
+export const IMAGE_MIME = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
+export const VIDEO_MIME = ["video/mp4", "video/webm", "video/quicktime"];
+export const AUDIO_MIME = ["audio/mpeg", "audio/webm", "audio/ogg", "audio/mp4", "audio/wav"];
+export const FILE_MIME = [
+  "application/pdf",
+  "text/plain",
+  "application/zip",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+
+export const ALLOWED_MIME = [...IMAGE_MIME, ...VIDEO_MIME, ...AUDIO_MIME, ...FILE_MIME];
+
+export function mediaKind(mime: string): "image" | "video" | "audio" | "file" {
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
+  return "file";
+}
+
+// Определяем MIME по расширению, если file.type пустой
+function mimeFromExt(fileName: string): string | null {
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "webp":
+      return "image/webp";
+    case "gif":
+      return "image/gif";
+    case "avif":
+      return "image/avif";
+    case "mp4":
+      return "video/mp4";
+    case "webm":
+      return "video/webm";
+    case "mov":
+      return "video/quicktime";
+    case "mp3":
+      return "audio/mpeg";
+    case "ogg":
+      return "audio/ogg";
+    case "m4a":
+      return "audio/mp4";
+    case "wav":
+      return "audio/wav";
+    case "pdf":
+      return "application/pdf";
+    case "txt":
+      return "text/plain";
+    case "zip":
+      return "application/zip";
+    default:
+      return null;
+  }
+}
+
+const EXT: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/avif": "avif",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+  "audio/mpeg": "mp3",
+  "audio/webm": "weba",
+  "audio/ogg": "ogg",
+  "audio/mp4": "m4a",
+  "audio/wav": "wav",
+  "application/pdf": "pdf",
+  "text/plain": "txt",
+  "application/zip": "zip",
+};
+
+function sniff(buffer: Buffer, declaredMime: string): boolean {
+  if (buffer.length < 12) return false;
+  const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const isPng = buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const isWebm = buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+  const isGif = buffer.subarray(0, 3).toString("latin1") === "GIF";
+  const isRiff = buffer.subarray(0, 4).toString("latin1") === "RIFF";
+  const isMp4 = buffer.subarray(4, 8).toString("latin1") === "ftyp";
+  const isMov = isMp4;
+  const isPdf = buffer.subarray(0, 5).toString("latin1") === "%PDF-";
+  const isZip = buffer[0] === 0x50 && buffer[1] === 0x4b;
+  const isId3 = buffer.subarray(0, 3).toString("latin1") === "ID3";
+  const isOgg = buffer.subarray(0, 4).toString("latin1") === "OggS";
+  const detected = isJpeg || isPng || isWebm || isGif || isRiff || isMp4 || isMov || isPdf || isZip || isId3 || isOgg;
+  if (!detected) return false;
+  const kind = mediaKind(declaredMime);
+  if (kind === "image") return isJpeg || isPng || isWebm || isGif || (isRiff && declaredMime === "image/webp");
+  if (kind === "video") return isMp4 || isWebm || isMov;
+  if (kind === "audio") return isId3 || isOgg || isWebm || isMp4 || isRiff;
+  return isPdf || isZip;
+}
+
+export function mediaUrl(key: string): string {
+  return `${S3_PUBLIC_URL}/${key}`;
+}
+
+export async function ensureMediaDir(): Promise<void> {
+  await mkdir(MEDIA_ROOT, { recursive: true });
+}
+
+export async function writeMedia(opts: {
+  file: File;
+  ownerId: string;
+  maxBytes: number;
+  allowed?: string[];
+}): Promise<{ key: string; size: number; mime: string; kind: ReturnType<typeof mediaKind> }> {
+  const { file, ownerId, maxBytes } = opts;
+  const allowed = opts.allowed ?? ALLOWED_MIME;
+
+  // ИСПРАВЛЕНИЕ: если file.type пустой, определяем MIME по расширению
+  let mime = file.type.toLowerCase().split(";")[0].trim();
+  if (!mime || mime === "application/octet-stream") {
+    const fromExt = mimeFromExt(file.name);
+    if (fromExt) mime = fromExt;
+  }
+
+  if (!allowed.includes(mime)) {
+    throw new ApiError(415, "unsupported_media_type", `Unsupported file type: ${mime || "unknown"}`);
+  }
+  if (file.size > maxBytes) {
+    throw new ApiError(413, "file_too_large", `File exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit`);
+  }
+  if (file.size === 0) throw new ApiError(422, "empty_file", "The selected file is empty");
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  if (!sniff(buffer, mime)) {
+    throw new ApiError(415, "content_mismatch", "File content does not match its declared type");
+  }
+
+  const ext = EXT[mime] ?? "bin";
+  const key = `${ownerId.slice(0, 8)}-${randomUUID()}.${ext}`;
+
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      Body: buffer,
+      ContentType: mime,
+      ACL: "public-read",
+    }),
+  );
+
+  return { key, size: file.size, mime, kind: mediaKind(mime) };
+}
+
+export async function deleteMedia(key: string): Promise<void> {
+  try {
+    await s3Client.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function absoluteMediaPath(key: string): string {
+  const resolved = path.join(MEDIA_ROOT, key);
+  if (!resolved.startsWith(MEDIA_ROOT)) throw new ApiError(400, "invalid_key", "Invalid media key");
+  return resolved;
+}
+
+export async function readMediaFile(key: string): Promise<{ size: number; path: string } | null> {
+  try {
+    const absolute = absoluteMediaPath(key);
+    const info = await stat(absolute);
+    return { size: info.size, path: absolute };
+  } catch {
+    return null;
+  }
+}
+
+export async function streamMedia(opts: {
+  key: string;
+  mime: string;
+  rangeHeader: string | null;
+  download?: boolean;
+}): Promise<Response | null> {
+  const file = await readMediaFile(opts.key);
+  if (!file) return null;
+  const total = file.size;
+  const headers = new Headers({
+    "Accept-Ranges": "bytes",
+    "Content-Type": opts.mime,
+    "Cache-Control": "private, max-age=3600",
+  });
+  if (opts.download) headers.set("Content-Disposition", `attachment; filename="${opts.key.split("/").pop()}"`);
+
+  const range = opts.rangeHeader?.match(/bytes=(\d*)-(\d*)/);
+  if (range && (range[1] || range[2])) {
+    const start = range[1] ? Number(range[1]) : Math.max(0, total - Number(range[2]));
+    const end = range[1] && range[2] ? Math.min(total - 1, Number(range[2])) : total - 1;
+    if (start >= total || end < start) {
+      return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${total}` } });
+    }
+    headers.set("Content-Range", `bytes ${start}-${end}/${total}`);
+    headers.set("Content-Length", String(end - start + 1));
+    return new Response(nodeStreamToWeb(createReadStream(file.path, { start, end })), { status: 206, headers });
+  }
+
+  headers.set("Content-Length", String(total));
+  return new Response(nodeStreamToWeb(createReadStream(file.path)), { status: 200, headers });
+}
+
+function nodeStreamToWeb(stream: NodeJS.ReadableStream): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      stream.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+      stream.on("end", () => controller.close());
+      stream.on("error", (err) => controller.error(err));
+    },
+    cancel() {
+      (stream as unknown as { destroy?: () => void }).destroy?.();
+    },
+  });
+}
+
+export async function writeBuffer(key: string, data: Buffer): Promise<void> {
+  await ensureMediaDir();
+  await mkdir(path.dirname(path.join(MEDIA_ROOT, key)), { recursive: true });
+  await writeFile(path.join(MEDIA_ROOT, key), data);
+}
+
+===== FILE: src\app\api\upload\presigned\route.ts =====
+import { NextResponse } from "next/server";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { requireUser } from "@/lib/auth";
+import { db } from "@/db";
+import { media } from "@/db/schema";
+import { randomUUID } from "node:crypto";
+
+const s3Client = new S3Client({
+  region: process.env.S3_REGION || "ru-7",
+  endpoint: process.env.S3_ENDPOINT || "https://s3.ru-7.storage.selcloud.ru",
+  credentials: {
+    accessKeyId: process.env.S3_ACCESS_KEY!,
+    secretAccessKey: process.env.S3_SECRET_KEY!,
+  },
+  forcePathStyle: false,
+});
+
+const S3_BUCKET = process.env.S3_BUCKET || "uzon-media";
+
+export async function POST(req: Request) {
+  try {
+    const user = await requireUser(req);
+    const { contentType, ext, purpose, visibility } = await req.json();
+
+    // ВАЖНО: нормализуем MIME (без codecs) — и подпись, и клиент должны
+    // использовать один и тот же Content-Type.
+    const normalizedType = String(contentType || "").split(";")[0].trim() || "application/octet-stream";
+
+    const key = `${user.id.slice(0, 8)}-${randomUUID()}.${ext}`;
+
+    const [mediaRow] = await db.insert(media).values({
+      ownerId: user.id,
+      key,
+      mime: normalizedType,
+      kind: purpose === "image" ? "image" : purpose === "video" || purpose === "clip" ? "video" : purpose === "audio" ? "audio" : "file",
+      size: 0,
+      visibility: visibility || "public",
+      status: "ready",
+    }).returning();
+
+    const command = new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      ContentType: normalizedType, // ← тот же, что на клиенте
+      // ACL: "public-read",         // ← УБРАТЬ для Selectel
+    });
+
+    const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 600 });
+
+    return NextResponse.json({
+      presignedUrl,
+      key,
+      mediaId: mediaRow.id,
+      contentType: normalizedType, // ← вернуть клиенту, чтобы он поставил тот же заголовок
+    });
+  } catch (error) {
+    console.error("Presigned URL error:", error);
+    return NextResponse.json({ error: "Failed to create URL" }, { status: 500 });
+  }
+}
+
+===== FILE: src\app\api\media\route.ts =====
+import { db } from "@/db";
+import { media } from "@/db/schema";
+import { requireUser } from "@/lib/auth";
+import { getServerConfig } from "@/lib/config";
+import { ApiError, ok, rateLimit, toResponse, clientIp } from "@/lib/http";
+import { serializeMedia } from "@/lib/media";
+import { deleteMedia } from "@/lib/storage";
+import { and, eq } from "drizzle-orm";
+import { AUDIO_MIME, FILE_MIME, IMAGE_MIME, VIDEO_MIME, writeMedia } from "@/lib/storage";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const PURPOSES = ["image", "video", "audio", "file", "avatar", "cover", "story", "clip"] as const;
+type Purpose = (typeof PURPOSES)[number];
+
+export async function POST(req: Request) {
+  try {
+    const user = await requireUser(req);
+    await rateLimit(`media:${user.id}`, 60, 300);
+    const config = await getServerConfig();
+
+    const form = await req.formData().catch(() => null);
+    if (!form) throw new ApiError(400, "invalid_form", "Expected multipart/form-data with a 'file' field");
+    const file = form.get("file");
+    if (!(file instanceof File)) throw new ApiError(422, "missing_file", "No file was provided");
+    const purposeRaw = String(form.get("purpose") ?? "file");
+    const purpose: Purpose = (PURPOSES as readonly string[]).includes(purposeRaw) ? (purposeRaw as Purpose) : "file";
+    const visibility = String(form.get("visibility") ?? "public");
+    const width = Number(form.get("width") ?? 0) || null;
+    const height = Number(form.get("height") ?? 0) || null;
+    const durationMs = Number(form.get("durationMs") ?? 0) || null;
+
+    const limitMap: Record<Purpose, number> = {
+      image: config.imageMaxMb,
+      avatar: config.imageMaxMb,
+      cover: config.imageMaxMb,
+      video: config.videoMaxMb,
+      clip: config.videoMaxMb,
+      audio: config.audioMaxMb,
+      file: config.fileMaxMb,
+      story: Math.max(config.imageMaxMb, config.videoMaxMb),
+    };
+    const allowedMap: Record<Purpose, string[]> = {
+      image: IMAGE_MIME,
+      avatar: IMAGE_MIME,
+      cover: IMAGE_MIME,
+      video: VIDEO_MIME,
+      clip: VIDEO_MIME,
+      audio: AUDIO_MIME,
+      file: [...FILE_MIME, ...IMAGE_MIME],
+      story: [...IMAGE_MIME, ...VIDEO_MIME],
+    };
+
+    const written = await writeMedia({
+      file,
+      ownerId: user.id,
+      maxBytes: limitMap[purpose] * 1024 * 1024,
+      allowed: allowedMap[purpose],
+    });
+
+    // Server-side duration guard for clips (never trust the client only).
+    if ((purpose === "clip" || purpose === "video") && durationMs) {
+      const maxMs = purpose === "clip" ? config.clipMaxSeconds * 1000 : config.longVideoMaxSeconds * 1000;
+      if (durationMs > maxMs) {
+        const { deleteMedia } = await import("@/lib/storage");
+        await deleteMedia(written.key);
+        throw new ApiError(422, "duration_exceeded", `Media is longer than ${Math.round(maxMs / 1000)} seconds`);
+      }
+    }
+
+    const [row] = await db
+      .insert(media)
+      .values({
+        ownerId: user.id,
+        key: written.key,
+        mime: written.mime,
+        kind: written.kind,
+        size: written.size,
+        width,
+        height,
+        durationMs,
+        originalName: file.name.slice(0, 180),
+        visibility: ["public", "followers", "contacts", "private"].includes(visibility) ? visibility : "public",
+      })
+      .returning();
+    return ok({ media: serializeMedia(row) }, { status: 201 });
+  } catch (error) {
+    return toResponse(error);
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const user = await requireUser(req);
+    const url = new URL(req.url, `http://${req.headers.get("host") ?? "localhost"}`);
+    const id = url.searchParams.get("id");
+    if (!id) throw new ApiError(422, "missing_id");
+    const [row] = await db.select().from(media).where(and(eq(media.id, id), eq(media.ownerId, user.id))).limit(1);
+    if (!row) throw new ApiError(404, "not_found", "Media not found");
+    void clientIp(req);
+    await deleteMedia(row.key);
+    await db.delete(media).where(eq(media.id, row.id));
+    return ok({ deleted: true });
+  } catch (error) {
+    return toResponse(error);
+  }
+}
+
+
+===== FILE: src\app\api\media\[key]\route.ts =====
+import { and, eq } from "drizzle-orm";
+import { db } from "@/db";
+import { media, postMedia, posts, stories, videos } from "@/db/schema";
+import { getSessionUser } from "@/lib/auth";
+import { ApiError, fail, toResponse } from "@/lib/http";
+import { evaluatePrivacyRule, type PrivacyRule } from "@/lib/access";
+import { getRelation } from "@/lib/services";
+import { deleteMedia } from "@/lib/storage";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+type Params = { params: Promise<{ key: string }> };
+
+// ИСПРАВЛЕНО: для vHosted имя бакета идёт перед s3
+const S3_PUBLIC_URL = `https://${process.env.S3_BUCKET}.s3.ru-7.storage.selcloud.ru`;
+
+export async function GET(req: Request, { params }: Params) {
+  try {
+    const { key } = await params;
+    const mediaKey = decodeURIComponent(key);
+    const [row] = await db.select().from(media).where(eq(media.key, mediaKey)).limit(1);
+    if (!row) return fail(404, "not_found", "Media not found");
+
+    const viewer = await getSessionUser(req);
+    await assertCanAccessMedia(row, viewer?.id ?? null, viewer?.role ?? "user");
+
+    if (row.remoteUrl) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: row.remoteUrl, "Cache-Control": "private, max-age=300" },
+      });
+    }
+
+    const publicUrl = `${S3_PUBLIC_URL}/${row.key}`;
+    return new Response(null, {
+      status: 302,
+      headers: { Location: publicUrl, "Cache-Control": "public, max-age=3600" },
+    });
+  } catch (error) {
+    return toResponse(error);
+  }
+}
+
+export async function DELETE(req: Request, { params }: Params) {
+  try {
+    const { key } = await params;
+    const viewer = await getSessionUser(req);
+    if (!viewer) throw new ApiError(401, "unauthenticated");
+    const [row] = await db.select().from(media).where(eq(media.key, decodeURIComponent(key))).limit(1);
+    if (!row) return fail(404, "not_found", "Media not found");
+    if (row.ownerId !== viewer.id && viewer.role === "user") throw new ApiError(403, "forbidden");
+
+    const [videoUse, storyUse] = await Promise.all([
+      db.select({ id: videos.id }).from(videos).where(eq(videos.mediaId, row.id)).limit(1),
+      db.select({ id: stories.id }).from(stories).where(eq(stories.mediaId, row.id)).limit(1),
+    ]);
+    if (videoUse[0] || storyUse[0]) {
+      throw new ApiError(409, "media_in_use", "Delete the video or story that uses this file first");
+    }
+    await deleteMedia(row.key);
+    await db.delete(media).where(eq(media.id, row.id));
+    return new Response(null, { status: 204 });
+  } catch (error) {
+    return toResponse(error);
+  }
+}
+
+async function assertCanAccessMedia(row: typeof media.$inferSelect, viewerId: string | null, role: string) {
+  if (row.ownerId === viewerId) return;
+  if (role === "admin" || role === "moderator") return;
+
+  const [storyRef] = await db
+    .select({ audience: stories.audience, userId: stories.userId, deletedAt: stories.deletedAt, expiresAt: stories.expiresAt })
+    .from(stories)
+    .where(and(eq(stories.mediaId, row.id), eq(stories.userId, row.ownerId)))
+    .limit(1);
+  if (storyRef) {
+    if (storyRef.deletedAt) throw new ApiError(410, "gone", "Story removed");
+    if (storyRef.expiresAt < new Date()) throw new ApiError(410, "expired", "Story expired");
+    await assertAudience(storyRef.audience, storyRef.userId, viewerId);
+    return;
+  }
+
+  const [videoRef] = await db
+    .select({ audience: videos.audience, ownerId: videos.ownerId, deletedAt: videos.deletedAt })
+    .from(videos)
+    .where(eq(videos.mediaId, row.id))
+    .limit(1);
+  if (videoRef) {
+    if (videoRef.deletedAt) throw new ApiError(410, "gone", "Video removed");
+    await assertAudience(videoRef.audience, videoRef.ownerId, viewerId);
+    return;
+  }
+
+  const [postRef] = await db
+    .select({ audience: posts.audience, authorId: posts.authorId, deletedAt: posts.deletedAt })
+    .from(postMedia)
+    .innerJoin(posts, eq(posts.id, postMedia.postId))
+    .where(eq(postMedia.mediaId, row.id))
+    .limit(1);
+  if (postRef) {
+    if (postRef.deletedAt) throw new ApiError(410, "gone", "Post removed");
+    await assertAudience(postRef.audience, postRef.authorId, viewerId);
+    return;
+  }
+
+  if (row.visibility === "public") return;
+  await assertAudience(row.visibility, row.ownerId, viewerId);
+}
+
+async function assertAudience(audience: string, ownerId: string, viewerId: string | null) {
+  if (audience === "public") return;
+  if (!viewerId) throw new ApiError(403, "forbidden", "Sign in to view this content");
+  const ctx = await getRelation(viewerId, ownerId);
+  if (ctx.blocked) throw new ApiError(403, "blocked");
+  const allowed = evaluatePrivacyRule(audience as PrivacyRule, ctx);
+  if (!allowed) throw new ApiError(403, "forbidden", "Restricted by the author's privacy settings");
+}
+
+===== FILE: public\sw.js =====
+
+const CACHE_NAME = "uzon-pwa-v2";
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll([
+        "/",
+        "/manifest.webmanifest",
+      ]);
+    })
+  );
+
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(
+        keys
+          .filter(
+            (key) => key.startsWith("uzon-pwa-") && key !== CACHE_NAME
+          )
+          .map((key) => caches.delete(key))
+      )
+    ).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", (event) => {
+  const request = event.request;
+
+  if (
+    request.method !== "GET" ||
+    new URL(request.url).origin !== self.location.origin
+  ) {
+    return;
+  }
+
+  event.respondWith(
+    fetch(request)
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(request, copy);
+          });
+        }
+
+        return response;
+      })
+      .catch(async () => {
+        const cached = await caches.match(request);
+
+        if (cached) return cached;
+
+        if (request.mode === "navigate") {
+          return (
+            (await caches.match("/")) ||
+            new Response("UZON недоступен без подключения к интернету.", {
+              status: 503,
+              headers: { "Content-Type": "text/plain; charset=utf-8" },
+            })
+          );
+        }
+
+        return new Response("Нет подключения к интернету", {
+          status: 503,
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        });
+      })
+  );
+});
+
+
+===== FILE: public\manifest.json =====
+{
+  "name": "UZON",
+  "short_name": "UZON",
+  "description": "Социальная сеть и мессенджер UZON",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#5C33F6",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
+
+===== FILE: public\manifest.webmanifest =====
+
+{
+  "id": "/",
+  "name": "UZON",
+  "short_name": "UZON",
+  "description": "Социальная платформа: мессенджер, клипы, видео и сторис.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#10121B",
+  "theme_color": "#5C33F6",
+  "orientation": "portrait",
+  "lang": "ru",
+  "categories": ["social"],
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
+
+
+===== FILE: .env.example =====
+# Copy this file to .env and set the password for your local PostgreSQL user.
+DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@127.0.0.1:5432/app_db
+
+# Local development only. Set to false to skip automatic demo data seeding.
+UZON_DEMO_MODE=true
+SEED_ON_BOOT=true
+
