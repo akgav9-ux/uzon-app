@@ -39,6 +39,7 @@ export function CallScreen({ callId }: { callId: string }) {
   const processedSignals = useRef<Set<string>>(new Set());
   const isCleaningUp = useRef(false);
   const facing = useRef<"user" | "environment">("user");
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const [status, setStatus] = useState<string>("connecting");
   const [micOn, setMicOn] = useState(true);
@@ -66,6 +67,27 @@ export function CallScreen({ callId }: { callId: string }) {
   useEffect(() => {
     setIceWarning(!iceServers.some((server) => server.urls.some((url) => url.startsWith("turn"))));
   }, [iceServers]);
+
+  // 🔥 Разблокировка звука для iOS/Safari
+  const unlockAudio = useCallback(() => {
+    if (!audioContextRef.current) {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        audioContextRef.current = new AudioCtx();
+      }
+    }
+    if (audioContextRef.current && audioContextRef.current.state === "suspended") {
+      audioContextRef.current.resume().then(() => {
+        console.log("🔓 AudioContext resumed");
+      }).catch(console.error);
+    }
+    
+    if (remoteVideo.current) {
+      remoteVideo.current.play().catch((err) => {
+        console.error("❌ Play after unlock failed:", err);
+      });
+    }
+  }, []);
 
   const getMedia = useCallback(async (video: boolean) => {
     if (streamRef.current) return streamRef.current;
@@ -97,7 +119,19 @@ export function CallScreen({ callId }: { callId: string }) {
     };
     
     pc.ontrack = (event) => {
-      if (remoteVideo.current) remoteVideo.current.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+      if (remoteVideo.current) {
+        remoteVideo.current.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+        
+        // Пытаемся включить звук. Если заблокировано - ждем клика.
+        remoteVideo.current.play().then(() => {
+          console.log("✅ Remote media playing");
+        }).catch((err) => {
+          console.warn("⚠️ Autoplay blocked:", err.name);
+          // Разблокируем по любому клику пользователя
+          document.addEventListener("click", unlockAudio, { once: true });
+          document.addEventListener("touchstart", unlockAudio, { once: true });
+        });
+      }
     };
     
     pc.onconnectionstatechange = () => {
@@ -109,9 +143,8 @@ export function CallScreen({ callId }: { callId: string }) {
       }
     };
     return pc;
-  }, [callQuery.data?.call.kind, getMedia, iceServers, sendSignal, t]);
+  }, [callQuery.data?.call.kind, getMedia, iceServers, sendSignal, t, unlockAudio]);
 
-  // 🔥 ГЛАВНЫЙ ФИКС: Синхронизация статуса из поллинга!
   useEffect(() => {
     if (signalQuery.data?.status && !isCleaningUp.current) {
       const serverStatus = signalQuery.data.status;
@@ -122,6 +155,7 @@ export function CallScreen({ callId }: { callId: string }) {
         }
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signalQuery.data?.status]);
 
   useEffect(() => {
@@ -192,6 +226,12 @@ export function CallScreen({ callId }: { callId: string }) {
     streamRef.current = null;
     if (localVideo.current) localVideo.current.srcObject = null;
     if (remoteVideo.current) remoteVideo.current.srcObject = null;
+    
+    // Закрываем AudioContext
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
   }
 
   const endCall = useMutation({
@@ -207,7 +247,7 @@ export function CallScreen({ callId }: { callId: string }) {
     mutationFn: () => postApi(`/api/calls/${callId}`, { action: "accept" }).then(() => sendSignal("accept")),
     onSuccess: () => {
       setStatus("active");
-      // Запускаем WebRTC (если мы callee)
+      unlockAudio(); // 🔥 Разблокируем звук при нажатии "Принять"
       if (callQuery.data && !callQuery.data.call.isInitiator) {
          createPeer().catch(console.error);
       }
@@ -286,7 +326,15 @@ export function CallScreen({ callId }: { callId: string }) {
         {ringing && !callQuery.data?.call.isInitiator ? (
           <div className="flex justify-center gap-6">
             <button onClick={() => declineCall.mutate()} className="flex h-16 w-16 items-center justify-center rounded-full bg-[#ff3b30] text-white shadow-lg active:scale-95 transition"><PhoneOff className="h-7 w-7" /></button>
-            <button onClick={() => acceptCall.mutate()} className="flex h-16 w-16 items-center justify-center rounded-full bg-[#34c759] text-white shadow-lg active:scale-95 animate-bounce"><Mic className="h-7 w-7" /></button>
+            <button 
+              onClick={() => {
+                unlockAudio(); // 🔥 Разблокируем звук при клике
+                acceptCall.mutate();
+              }} 
+              className="flex h-16 w-16 items-center justify-center rounded-full bg-[#34c759] text-white shadow-lg active:scale-95 animate-bounce"
+            >
+              <Mic className="h-7 w-7" />
+            </button>
           </div>
         ) : (
           <div className="flex items-center justify-between px-2">
