@@ -175,17 +175,9 @@ export function CallScreen({ callId }: { callId: string }) {
       if (remoteAudio.current) {
         remoteAudio.current.srcObject = remoteStream;
         remoteAudio.current.muted = false;
+        // Пытаемся запустить, но не паникуем, если браузер заблокирует
         remoteAudio.current.play().catch((err) => {
-          console.error("Audio play blocked:", err);
-          const unlock = () => {
-            if (remoteAudio.current?.isConnected) {
-              remoteAudio.current.play().catch(console.error);
-            }
-            document.removeEventListener("click", unlock);
-            document.removeEventListener("touchstart", unlock);
-          };
-          document.addEventListener("click", unlock, { once: true });
-          document.addEventListener("touchstart", unlock, { once: true });
+          console.warn("Audio play blocked, waiting for user gesture:", err.name);
         });
       }
     };
@@ -305,6 +297,21 @@ export function CallScreen({ callId }: { callId: string }) {
     }
   }
 
+  // 🔥 ГЛАВНЫЙ ФИКС: Разблокировка звука по клику
+  const unlockAudio = useCallback(() => {
+    try {
+      if (audioContextRef.current?.state === "suspended") {
+        audioContextRef.current.resume().catch(console.error);
+      }
+      if (remoteAudio.current && remoteAudio.current.srcObject) {
+        remoteAudio.current.muted = false;
+        remoteAudio.current.play().catch(console.error);
+      }
+    } catch (e) {
+      console.warn("Unlock error:", e);
+    }
+  }, []);
+
   const endCall = useMutation({
     mutationFn: () => postApi(`/api/calls/${callId}`, { action: "end" }),
     onSuccess: () => {
@@ -318,22 +325,7 @@ export function CallScreen({ callId }: { callId: string }) {
     mutationFn: () => postApi(`/api/calls/${callId}`, { action: "accept" }).then(() => sendSignal("accept")),
     onSuccess: () => {
       setStatus("active");
-      
-      // 🔥 Исправлено: проверяем, что элемент в DOM, прежде чем вызывать play()
-      setTimeout(() => {
-        try {
-          if (remoteAudio.current?.isConnected) {
-            remoteAudio.current.muted = false;
-            remoteAudio.current.play().catch((e) => console.warn("Audio play error:", e.name));
-          }
-          if (remoteVideo.current?.isConnected) {
-            remoteVideo.current.play().catch((e) => console.warn("Video play error:", e.name));
-          }
-        } catch (e) {
-          console.warn("Play error:", e);
-        }
-      }, 500);
-
+      // 🔥 Убираем setTimeout и play() отсюда. Звук разблокируется кликом.
       if (callQuery.data && !callQuery.data.call.isInitiator) {
          createPeer().catch(console.error);
       }
@@ -376,9 +368,12 @@ export function CallScreen({ callId }: { callId: string }) {
     : "Соединение...";
 
   return (
-    <div className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-[#0f1115] text-white">
+    <div 
+      className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-[#0f1115] text-white"
+      onClick={unlockAudio} // 🔥 Разблокируем звук по любому клику на экран
+      onTouchStart={unlockAudio}
+    >
       
-      {/* 🔥 Скрытый аудио-элемент для звука */}
       <audio ref={remoteAudio} autoPlay playsInline className="hidden" />
 
       <video ref={remoteVideo} autoPlay playsInline className={cn("absolute inset-0 h-full w-full object-cover transition-opacity duration-500", status !== "active" && "opacity-0")} />
