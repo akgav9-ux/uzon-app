@@ -247,7 +247,6 @@ export function CallScreen({ callId }: { callId: string }) {
     }
 
     audio.autoplay = true;
-    audio.playsInline = true;
     audio.muted = false;
     audio.volume = 1;
 
