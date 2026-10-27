@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from "next/link";
@@ -248,6 +247,7 @@ export function CallScreen({ callId }: { callId: string }) {
     }
 
     audio.autoplay = true;
+    audio.playsInline = true;
     audio.muted = false;
     audio.volume = 1;
 
@@ -510,9 +510,10 @@ export function CallScreen({ callId }: { callId: string }) {
     onSuccess: async () => {
       setError(null);
 
+      // 🔥 Разблокируем звук сразу по клику "Принять"
+      unlockAudio();
+
       try {
-        // Запрашиваем доступ к микрофону сразу после нажатия
-        // пользователем кнопки принятия вызова.
         await getMedia(
           callQuery.data?.call.kind === "video",
         );
@@ -601,8 +602,6 @@ export function CallScreen({ callId }: { callId: string }) {
       return;
     }
 
-    // Не переводим вызов в active только потому,
-    // что сервер получил accept: ждём реального WebRTC-соединения.
     if (
       serverStatus === "ringing" ||
       serverStatus === "connecting"
@@ -675,7 +674,6 @@ export function CallScreen({ callId }: { callId: string }) {
                 throw new Error("В offer отсутствует SDP");
               }
 
-              // Не применяем один и тот же offer повторно.
               if (
                 !pc.remoteDescription ||
                 pc.remoteDescription.type !== sdp.type
@@ -744,7 +742,6 @@ export function CallScreen({ callId }: { callId: string }) {
               );
             }
 
-            // Помечаем обработанным только после успешного выполнения.
             processedSignals.current.add(signal.id);
           } catch (err) {
             console.error(
@@ -759,10 +756,6 @@ export function CallScreen({ callId }: { callId: string }) {
                 ? err.message
                 : "Ошибка обработки сигнала",
             );
-
-            // Не добавляем ID в processedSignals:
-            // клиент сможет повторить обработку, если сервер
-            // повторно вернёт этот сигнал.
           }
         }
       } finally {
@@ -831,11 +824,12 @@ export function CallScreen({ callId }: { callId: string }) {
       onClick={unlockAudio}
       onTouchStart={unlockAudio}
     >
+      {/* 🔥 ИСПРАВЛЕНИЕ ЗВУКА: убраны opacity-0 и h-px, теперь просто hidden */}
       <audio
         ref={remoteAudio}
         autoPlay
         playsInline
-        className="absolute h-px w-px opacity-0 pointer-events-none"
+        className="hidden"
       />
 
       <video
