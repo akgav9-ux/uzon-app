@@ -38,8 +38,6 @@ export function CallScreen({ callId }: { callId: string }) {
   
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const oscillatorRef = useRef<OscillatorNode | null>(null);
   
   const processedSignals = useRef<Set<string>>(new Set());
   const isCleaningUp = useRef(false);
@@ -51,6 +49,7 @@ export function CallScreen({ callId }: { callId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [iceWarning, setIceWarning] = useState(false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
 
   const callQuery = useQuery({ queryKey: qk.call(callId), queryFn: () => get<CallState>(`/api/calls/${callId}`) });
   const configQuery = useQuery({ queryKey: qk.config, queryFn: () => get<{ config: { iceServers: IceServer[]; demoMode: boolean } }>("/api/config") });
@@ -72,69 +71,6 @@ export function CallScreen({ callId }: { callId: string }) {
     setIceWarning(!iceServers.some((server) => server.urls.some((url) => url.startsWith("turn"))));
   }, [iceServers]);
 
-  const playTone = useCallback((type: "dial" | "ring") => {
-    try {
-      if (!audioContextRef.current) {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        audioContextRef.current = new AudioCtx();
-      }
-      const ctx = audioContextRef.current;
-      if (ctx.state === "suspended") ctx.resume();
-
-      if (oscillatorRef.current) {
-        oscillatorRef.current.stop();
-        oscillatorRef.current.disconnect();
-      }
-
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      
-      if (type === "dial") {
-        osc.frequency.value = 425;
-        gain.gain.value = 0.1;
-        osc.start();
-        setInterval(() => {
-          gain.gain.value = gain.gain.value === 0 ? 0.1 : 0;
-        }, 1000);
-      } else {
-        osc.frequency.value = 800;
-        gain.gain.value = 0.1;
-        osc.start();
-        setInterval(() => {
-          gain.gain.value = gain.gain.value === 0 ? 0.1 : 0;
-        }, 500);
-        if (navigator.vibrate) navigator.vibrate([500, 500, 500, 500]);
-      }
-      
-      oscillatorRef.current = osc;
-    } catch (err) {
-      console.warn("Tone generation failed:", err);
-    }
-  }, []);
-
-  const stopTone = useCallback(() => {
-    if (oscillatorRef.current) {
-      oscillatorRef.current.stop();
-      oscillatorRef.current.disconnect();
-      oscillatorRef.current = null;
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.suspend();
-    }
-  }, []);
-
-  useEffect(() => {
-    if (status === "ringing") {
-      if (callQuery.data?.call.isInitiator) playTone("dial");
-      else playTone("ring");
-    } else {
-      stopTone();
-    }
-    return () => stopTone();
-  }, [status, callQuery.data?.call.isInitiator, playTone, stopTone]);
-
   const getMedia = useCallback(async (video: boolean) => {
     if (streamRef.current) return streamRef.current;
     try {
@@ -150,6 +86,19 @@ export function CallScreen({ callId }: { callId: string }) {
       throw err;
     }
   }, [t]);
+
+  const playRemoteAudio = useCallback(async () => {
+    if (remoteAudio.current && remoteAudio.current.srcObject) {
+      try {
+        remoteAudio.current.muted = false;
+        await remoteAudio.current.play();
+        setAudioBlocked(false);
+      } catch (err) {
+        console.warn("Autoplay blocked by browser:", err);
+        setAudioBlocked(true);
+      }
+    }
+  }, []);
 
   const createPeer = useCallback(async () => {
     if (pcRef.current) return pcRef.current;
@@ -167,19 +116,21 @@ export function CallScreen({ callId }: { callId: string }) {
     pc.ontrack = (event) => {
       const remoteStream = event.streams[0] ?? new MediaStream([event.track]);
       
+      // Видео
       if (remoteVideo.current) {
         remoteVideo.current.srcObject = remoteStream;
-        remoteVideo.current.play().catch(console.error);
       }
       
+      // Аудио (через невидимый тег, чтобы не было эха)
       if (remoteAudio.current) {
         remoteAudio.current.srcObject = remoteStream;
-        remoteAudio.current.muted = false;
-        // Пытаемся запустить, но не паникуем, если браузер заблокирует
-        remoteAudio.current.play().catch((err) => {
-          console.warn("Audio play blocked, waiting for user gesture:", err.name);
-        });
+        void playRemoteAudio();
       }
+
+      // Если трек был замьючен на уровне браузера, размьючиваем его
+      event.track.onunmute = () => {
+        if (event.track.kind === "audio") void playRemoteAudio();
+      };
     };
     
     pc.onconnectionstatechange = () => {
@@ -191,22 +142,7 @@ export function CallScreen({ callId }: { callId: string }) {
       }
     };
     return pc;
-  }, [callQuery.data?.call.kind, getMedia, iceServers, sendSignal, t]);
-
-  // Диагностика
-  useEffect(() => {
-    if (status !== "active" || !pcRef.current) return;
-    const interval = setInterval(async () => {
-      if (!pcRef.current) return;
-      const stats = await pcRef.current.getStats();
-      stats.forEach((report) => {
-        if (report.type === "inbound-rtp" && report.kind === "audio") {
-          console.log("🎤 AUDIO BYTES RECEIVED:", report.bytesReceived);
-        }
-      });
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [status]);
+  }, [callQuery.data?.call.kind, getMedia, iceServers, sendSignal, t, playRemoteAudio]);
 
   useEffect(() => {
     if (signalQuery.data?.status && !isCleaningUp.current) {
@@ -218,7 +154,6 @@ export function CallScreen({ callId }: { callId: string }) {
         }
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signalQuery.data?.status]);
 
   useEffect(() => {
@@ -260,7 +195,6 @@ export function CallScreen({ callId }: { callId: string }) {
         }
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signalQuery.data]);
 
   useEffect(() => {
@@ -289,26 +223,17 @@ export function CallScreen({ callId }: { callId: string }) {
     streamRef.current = null;
     if (localVideo.current) localVideo.current.srcObject = null;
     if (remoteVideo.current) remoteVideo.current.srcObject = null;
-    if (remoteAudio.current) remoteAudio.current.srcObject = null;
-    stopTone();
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
+    if (remoteAudio.current) {
+      remoteAudio.current.pause();
+      remoteAudio.current.srcObject = null;
     }
   }
 
-  // 🔥 ГЛАВНЫЙ ФИКС: Разблокировка звука по клику
+  // 🔥 ГЛАВНЫЙ ФИКС: разблокировка звука по клику
   const unlockAudio = useCallback(() => {
-    try {
-      if (audioContextRef.current?.state === "suspended") {
-        audioContextRef.current.resume().catch(console.error);
-      }
-      if (remoteAudio.current && remoteAudio.current.srcObject) {
-        remoteAudio.current.muted = false;
-        remoteAudio.current.play().catch(console.error);
-      }
-    } catch (e) {
-      console.warn("Unlock error:", e);
+    if (remoteAudio.current) {
+      remoteAudio.current.muted = false;
+      remoteAudio.current.play().catch(() => {});
     }
   }, []);
 
@@ -325,7 +250,6 @@ export function CallScreen({ callId }: { callId: string }) {
     mutationFn: () => postApi(`/api/calls/${callId}`, { action: "accept" }).then(() => sendSignal("accept")),
     onSuccess: () => {
       setStatus("active");
-      // 🔥 Убираем setTimeout и play() отсюда. Звук разблокируется кликом.
       if (callQuery.data && !callQuery.data.call.isInitiator) {
          createPeer().catch(console.error);
       }
@@ -370,10 +294,11 @@ export function CallScreen({ callId }: { callId: string }) {
   return (
     <div 
       className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-[#0f1115] text-white"
-      onClick={unlockAudio} // 🔥 Разблокируем звук по любому клику на экран
+      onClick={unlockAudio}
       onTouchStart={unlockAudio}
     >
       
+      {/* 🔥 Скрытый тег для аудио. Обязательно с muted={false} и playsInline */}
       <audio ref={remoteAudio} autoPlay playsInline className="hidden" />
 
       <video ref={remoteVideo} autoPlay playsInline className={cn("absolute inset-0 h-full w-full object-cover transition-opacity duration-500", status !== "active" && "opacity-0")} />
@@ -408,6 +333,14 @@ export function CallScreen({ callId }: { callId: string }) {
       </div>
 
       <div className="relative z-30 mt-auto bg-[#1c1c1e]/90 backdrop-blur-xl border-t border-white/5 pb-8 pt-4 px-6">
+        
+        {/* Плашка, если браузер заблокировал звук */}
+        {audioBlocked && !finished && (
+          <button onClick={unlockAudio} className="mb-4 w-full rounded-xl bg-yellow-500 px-4 py-3 text-sm font-bold text-black animate-pulse">
+            Нажмите сюда, чтобы включить звук
+          </button>
+        )}
+
         {ringing && !callQuery.data?.call.isInitiator ? (
           <div className="flex justify-center gap-6">
             <button onClick={() => declineCall.mutate()} className="flex h-16 w-16 items-center justify-center rounded-full bg-[#ff3b30] text-white shadow-lg active:scale-95 transition"><PhoneOff className="h-7 w-7" /></button>

@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from "next/link";
@@ -111,7 +110,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   };
 
-  // После успешной авторизации обновляем пользователя и открываем главную.
   useEffect(() => {
     if (searchParams.get("auth") === "success") {
       void refreshUser().then(() => {
@@ -120,7 +118,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [searchParams, refreshUser, router]);
 
-  // Публичные страницы доступны без входа.
   const publicPaths = [
     "/",
     "/home",
@@ -151,7 +148,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  // Если гость открыл закрытую страницу, ждём перехода на вход.
   if (!user && !isPublicPage) return null;
 
   const primary: NavItem[] = [
@@ -552,7 +548,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       )}
 
       {/* На клипах убираем отступы и занимаем весь экран. */}
-      <main className={isClipsPage ? "" : "md:pl-60 lg:pl-64"}>
+      {/* 🔥 ИСПРАВЛЕНИЕ: Добавлены min-w-0 и overflow-hidden, чтобы контент не вылезал за пределы */}
+      <main className={isClipsPage ? "min-w-0 overflow-hidden" : "min-w-0 overflow-hidden md:pl-60 lg:pl-64"}>
         <div
           className={
             isClipsPage

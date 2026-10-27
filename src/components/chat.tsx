@@ -3,50 +3,12 @@
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertCircle,
-  ArrowLeft,
-  Check,
-  CheckCheck,
-  ChevronDown,
-  Clock,
-  Crown,
-  Flag,
-  Info,
-  Mic,
-  MoreHorizontal,
-  Paperclip,
-  Pause,
-  Phone,
-  Pin,
-  Play,
-  Plus,
-  RotateCcw,
-  Search,
-  Send,
-  Smile,
-  Square,
-  SwitchCamera,
-  Trash2,
-  Video as VideoIcon,
-  X,
+  AlertCircle, ArrowLeft, Check, CheckCheck, ChevronDown, Clock, Crown, Flag, Info, Mic, MoreHorizontal, Paperclip, Pause, Phone, Pin, Play, Plus, RotateCcw, Search, Send, Smile, Square, SwitchCamera, Trash2, Video as VideoIcon, X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useApp } from "@/components/providers";
 import {
-  Avatar,
-  Badge,
-  Button,
-  EmptyState,
-  ErrorState,
-  Field,
-  IconButton,
-  Input,
-  Menu,
-  MenuItem,
-  Modal,
-  Skeleton,
-  Switch,
-  Textarea,
+  Avatar, Badge, Button, EmptyState, ErrorState, Field, IconButton, Input, Menu, MenuItem, Modal, Skeleton, Switch, Textarea,
 } from "@/components/ui";
 import { ReportModal } from "@/components/post";
 import { del, get, patch, post as postApi, qk, uploadMedia } from "@/lib/client/api";
@@ -56,11 +18,6 @@ import { cn } from "@/lib/utils";
 /* -------------------------------------------------------------------------- */
 /*                         ЛОКАЛИЗАЦИЯ НОВЫХ СТРОК                            */
 /* -------------------------------------------------------------------------- */
-/*
- * Новые строки сначала ищутся в вашей системе локализации (ключи chat.*), а если
- * там их нет — берутся из этого словаря (ru / en / uz). Когда перенесёте строки
- * в файлы переводов, словарь можно удалить: хук useTr() подхватит их сам.
- */
 
 type L3 = { ru: string; en: string; uz: string };
 
@@ -172,7 +129,6 @@ function pickMime(candidates: string[]): string | undefined {
   });
 }
 
-/** Для сервера отдаём MIME без параметров кодека: «audio/webm», а не «audio/webm;codecs=opus». */
 const baseMime = (mime: string) => mime.split(";")[0].trim();
 
 function extFor(mime: string, kind: "audio" | "video") {
@@ -211,7 +167,6 @@ function resample(values: number[], n: number): number[] {
   return out.map((v) => Math.max(0.12, v / peak));
 }
 
-/** Волна для полученных сообщений: детерминированный «рисунок» по адресу файла. */
 function seededBars(seed: string, n: number): number[] {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
@@ -240,7 +195,6 @@ try {
 const isEmojiOnly = (text: string) => Boolean(EMOJI_ONLY && text.trim().length > 0 && text.trim().length <= 14 && EMOJI_ONLY.test(text));
 
 /* ----------------------------- данные эмодзи ----------------------------- */
-/* Формат: "эмодзи ключевые слова (en/ru)" — слова используются для поиска. */
 
 const EMOJI_DATA: { id: string; icon: string; labelKey: string; items: string[] }[] = [
   {
@@ -314,11 +268,6 @@ function saveRecent(list: string[]) {
   }
 }
 
-/*
- * Архитектура для стикеров/GIF: добавьте пак сюда — вкладка «Стикеры» появится
- * в панели автоматически. Отправка стикера требует поддержки на сервере
- * (например, attachmentKind: "sticker"), поэтому по умолчанию список пуст.
- */
 export type StickerPack = { id: string; title: string; stickers: { id: string; url: string }[] };
 const STICKER_PACKS: StickerPack[] = [];
 
@@ -739,7 +688,6 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
 
   useEffect(() => setRecent(loadRecent()), []);
 
-  // черновик переживает перезагрузку (sessionStorage)
   useEffect(() => {
     try {
       if (text) sessionStorage.setItem(draftKey, text);
@@ -749,7 +697,6 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     }
   }, [text, draftKey]);
 
-  // автоподгон высоты поля ввода
   useEffect(() => {
     const el = taRef.current;
     if (!el) return;
@@ -757,7 +704,6 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
   }, [text]);
 
-  // освобождаем blob-ссылки при выходе
   useEffect(() => {
     return () => {
       pendingRef.current.forEach((p) => p.localUrl && URL.revokeObjectURL(p.localUrl));
@@ -776,7 +722,11 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     staleTime: 2000,
   });
 
-  const messages = useMemo(() => messagesQuery.data?.messages ?? [], [messagesQuery.data]);
+  // 🔥 ИСПРАВЛЕНИЕ 1: Сортируем сообщения, чтобы старые были сверху
+  const messages = useMemo(() => {
+    const list = messagesQuery.data?.messages ?? [];
+    return [...list].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }, [messagesQuery.data]);
 
   const rows = useMemo<ListRow[]>(() => {
     const out: ListRow[] = [];
@@ -801,18 +751,21 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     return out;
   }, [messages, tr, lang]);
 
-  // умная автопрокрутка: не мешаем читать историю
+  // 🔥 ИСПРАВЛЕНИЕ 2: Автоскролл вниз при новых сообщениях
   useEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-    if (firstScrollRef.current && messages.length > 0) {
+    if (messages.length === 0) return;
+    if (firstScrollRef.current) {
       firstScrollRef.current = false;
-      bottomRef.current?.scrollIntoView({ behavior: "auto" });
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "auto" }), 50);
       return;
     }
-    const lastIsMine = pending.length > 0 || messages[messages.length - 1]?.isMine;
-    if (atBottomRef.current || lastIsMine) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, pending.length, messages]);
+    const el = listRef.current;
+    if (!el) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (dist < 300 || atBottomRef.current) {
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    }
+  }, [messages]);
 
   const onScroll = () => {
     const el = listRef.current;
@@ -857,7 +810,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   /* ------------------------------ ОТПРАВКА ------------------------------ */
 
   const runPending = async (item: PendingItem) => {
-    if (inflightRef.current.has(item.id)) return; // защита от двойной отправки
+    if (inflightRef.current.has(item.id)) return;
     inflightRef.current.add(item.id);
     setPending((list) => list.map((x) => (x.id === item.id ? { ...x, status: "sending", error: undefined } : x)));
     try {
@@ -971,7 +924,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     e.preventDefault();
     if (videoOpen) return;
     if (voiceActive) {
-      if (voicePhase === "recording") voiceCtl.current?.stop(); // режим «нажал — нажал»
+      if (voicePhase === "recording") voiceCtl.current?.stop();
       return;
     }
     try {
@@ -994,7 +947,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const onMicUp = () => {
     const p = pressRef.current;
     pressRef.current = null;
-    if (p && Date.now() - p.t > 600) voiceCtl.current?.stop(); // удержание → завершить запись (на прослушивание)
+    if (p && Date.now() - p.t > 600) voiceCtl.current?.stop();
   };
 
   /* ------------------------------- RENDER ------------------------------- */
@@ -1011,7 +964,8 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const hasText = text.trim().length > 0;
 
   return (
-    <div className="fixed inset-0 z-40 flex h-[100dvh] w-full flex-col overflow-hidden bg-background">
+    // 🔥 ИСПРАВЛЕНИЕ 3: Высота на весь экран и flex-col, чтобы ничего не прыгало
+    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-background">
       {/* ------------------------------- ШАПКА ------------------------------- */}
       <header className="relative flex shrink-0 items-center gap-2 border-b border-line bg-surface/90 px-3 py-2.5 backdrop-blur">
         <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-brand/50 to-transparent" />
@@ -1338,7 +1292,6 @@ function VoiceRecorder({
         return;
       }
 
-      // уровень сигнала → анимированная волна
       let analyser: AnalyserNode | null = null;
       try {
         const Ctx: typeof AudioContext = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -1419,7 +1372,7 @@ function VoiceRecorder({
 
       const data = analyser ? new Uint8Array(analyser.frequencyBinCount) : null;
       levelTimer = window.setInterval(() => {
-        let level = 0.15 + Math.random() * 0.1; // если AnalyserNode недоступен — мягкая анимация
+        let level = 0.15 + Math.random() * 0.1;
         if (analyser && data) {
           analyser.getByteTimeDomainData(data);
           let sum = 0;
@@ -1571,7 +1524,6 @@ function VideoRecorderOverlay({
     [],
   );
 
-  // (пере)открываем камеру при смене facing
   useEffect(() => {
     if (typeof MediaRecorder === "undefined") {
       setFatal(tr("chat.unsupported"));
@@ -1581,7 +1533,6 @@ function VideoRecorderOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facing]);
 
-  // подключаем поток к <video>, когда он появился в DOM
   useEffect(() => {
     const el = previewRef.current;
     if ((stage === "ready" || stage === "recording") && el && streamRef.current) {
@@ -1640,7 +1591,7 @@ function VideoRecorderOverlay({
       const blob = new Blob(chunksRef.current, { type });
       const url = URL.createObjectURL(blob);
       resultUrlRef.current = url;
-      stopStream(); // освобождаем камеру на время предпросмотра
+      stopStream();
       setResult({ url, blob, mime: type, duration });
       setStage("review");
     };
@@ -1792,8 +1743,6 @@ function VideoRecorderOverlay({
 
 function isVideoNoteMedia(media: { kind?: string; name?: string | null } | null | undefined) {
   if (!media || media.kind !== "video") return false;
-  // Круглыми показываем записанные видеосообщения (имя video-note-*) и старые
-  // сообщения без имени файла; загруженные ролики из галереи — обычным плеером.
   return !media.name || /^video-note-/i.test(media.name);
 }
 
@@ -1801,7 +1750,7 @@ function StatusTicks({ message, tr }: { message: MessagePayload; tr: Tr }) {
   const status = String((message as { status?: string }).status ?? "");
   if (status === "read") return <CheckCheck className="h-3.5 w-3.5 text-sky-300" aria-label={tr("chat.read")} />;
   if (status === "delivered") return <CheckCheck className="h-3.5 w-3.5" aria-label={tr("chat.delivered")} />;
-  return <Check className="h-3.5 w-3.5" aria-label={tr("chat.sentOk")} />; // сообщение есть на сервере = отправлено
+  return <Check className="h-3.5 w-3.5" aria-label={tr("chat.sentOk")} />;
 }
 
 function MessageBubble({
@@ -1914,7 +1863,6 @@ function MessageBubble({
           </div>
         )}
 
-        {/* На телефоне действия видны всегда (приглушённо), на ПК — по наведению */}
         <div className={cn("mt-0.5 flex items-center gap-2 opacity-60 transition md:opacity-0 md:group-hover:opacity-100", message.isMine && "justify-end")}>
           <button onClick={() => setShowReactions((v) => !v)} className="p-1 text-muted hover:text-brand" aria-label={t("chat.reply")}>
             <Smile className="h-4 w-4" />
@@ -2087,7 +2035,6 @@ function AudioPlayer({
     const a = ref.current;
     if (!a) return;
     if (a.duration === Infinity || isNaN(a.duration)) {
-      // webm из MediaRecorder: длительность неизвестна до «перемотки в конец»
       const fix = () => {
         a.removeEventListener("timeupdate", fix);
         if (isFinite(a.duration)) setDur(a.duration);
