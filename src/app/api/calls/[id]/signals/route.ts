@@ -1,6 +1,7 @@
+
 import { and, asc, eq, isNull, ne, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { callSignals, calls } from "@/db/schema";
+import { calls, callSignals } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { ApiError, ok, rateLimit, readBody, toResponse } from "@/lib/http";
 import { callSignalSchema } from "@/lib/validation";
@@ -8,17 +9,21 @@ import { callSignalSchema } from "@/lib/validation";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type Params = { params: Promise<{ id: string }> };
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
 
-const FINISHED_STATUSES = ["ended", "missed", "declined", "failed"] as const;
-const MAX_SIGNAL_PAYLOAD_LENGTH = 20_000;
-const MAX_SIGNALS_PER_POLL = 50;
-const MISSED_CALL_TIMEOUT_MS = 90_000;
+const FINISHED_STATUSES = [
+  "ended",
+  "declined",
+  "missed",
+  "failed",
+] as const;
 
-export async function GET(req: Request, { params }: Params) {
+export async function GET(req: Request, context: RouteContext) {
   try {
     const user = await requireUser(req);
-    const { id } = await params;
+    const { id } = await context.params;
 
     const [call] = await db
       .select()
@@ -26,22 +31,44 @@ export async function GET(req: Request, { params }: Params) {
       .where(eq(calls.id, id))
       .limit(1);
 
-    if (!call) throw new ApiError(404, "not_found", "Call not found");
+    if (!call) {
+      throw new ApiError(404, "call_not_found", "Call not found");
+    }
 
-    const isParticipant = call.initiatorId === user.id || call.calleeId === user.id;
-    if (!isParticipant) throw new ApiError(403, "forbidden");
+    if (call.initiatorId !== user.id && call.calleeId !== user.id) {
+      throw new ApiError(403, "forbidden", "You are not a participant in this call");
+    }
 
     let status = call.status;
 
-    if (call.status === "ringing" && Date.now() - call.createdAt.getTime() > MISSED_CALL_TIMEOUT_MS) {
+    if (
+      status === "ringing" &&
+      Date.now() - call.createdAt.getTime() > 90_000
+    ) {
       await db
         .update(calls)
-        .set({ status: "missed", endedAt: new Date(), endedReason: "timeout" })
-        .where(and(eq(calls.id, id), eq(calls.status, "ringing")));
-      status = "missed";
+        .set({
+          status: "missed",
+          endedAt: new Date(),
+          endedReason: "timeout",
+        })
+        .where(
+          and(
+            eq(calls.id, id),
+            eq(calls.status, "ringing"),
+          ),
+        );
+
+      const [updatedCall] = await db
+        .select({ status: calls.status })
+        .from(calls)
+        .where(eq(calls.id, id))
+        .limit(1);
+
+      status = updatedCall?.status ?? "missed";
     }
 
-    const rows = await db
+    const signals = await db
       .select()
       .from(callSignals)
       .where(
@@ -52,30 +79,31 @@ export async function GET(req: Request, { params }: Params) {
         ),
       )
       .orderBy(asc(callSignals.createdAt))
-      .limit(MAX_SIGNALS_PER_POLL);
+      .limit(50);
 
-    if (rows.length > 0) {
-      const rowIds = rows.map((row) => row.id);
+    if (signals.length > 0) {
       await db
         .update(callSignals)
         .set({ consumedAt: new Date() })
         .where(
           and(
             eq(callSignals.callId, id),
+            inArray(
+              callSignals.id,
+              signals.map((signal) => signal.id),
+            ),
             isNull(callSignals.consumedAt),
-            inArray(callSignals.id, rowIds),
           ),
         );
     }
 
     return ok({
       status,
-      signals: rows.map((row) => ({
-        id: row.id,
-        type: row.type,
-        payload: row.payload,
-        fromUserId: row.fromUserId,
-        createdAt: row.createdAt.toISOString(),
+      signals: signals.map((signal) => ({
+        id: signal.id,
+        type: signal.type,
+        payload: signal.payload,
+        createdAt: signal.createdAt.toISOString(),
       })),
     });
   } catch (error) {
@@ -83,13 +111,13 @@ export async function GET(req: Request, { params }: Params) {
   }
 }
 
-export async function POST(req: Request, { params }: Params) {
+export async function POST(req: Request, context: RouteContext) {
   try {
     const user = await requireUser(req);
-    const { id } = await params;
+    const { id } = await context.params;
     const body = await readBody(req, callSignalSchema);
 
-    await rateLimit(`signal:${user.id}`, 300, 60);
+    await rateLimit(`call-signal:${user.id}`, 180, 60);
 
     const [call] = await db
       .select()
@@ -97,49 +125,67 @@ export async function POST(req: Request, { params }: Params) {
       .where(eq(calls.id, id))
       .limit(1);
 
-    if (!call) throw new ApiError(404, "not_found", "Call not found");
+    if (!call) {
+      throw new ApiError(404, "call_not_found", "Call not found");
+    }
 
     const isInitiator = call.initiatorId === user.id;
     const isCallee = call.calleeId === user.id;
 
-    if (!isInitiator && !isCallee) throw new ApiError(403, "forbidden");
-
-    if (FINISHED_STATUSES.includes(call.status as any) && body.type !== "end") {
-      throw new ApiError(410, "call_finished", "The call has already finished");
+    if (!isInitiator && !isCallee) {
+      throw new ApiError(403, "forbidden", "You are not a participant in this call");
     }
 
-    if (body.type === "offer" && !isInitiator) throw new ApiError(403, "forbidden", "Only the initiator sends the offer");
-    if (body.type === "answer" && !isCallee) throw new ApiError(403, "forbidden", "Only the callee sends the answer");
-    if (body.type === "accept" && !isCallee) throw new ApiError(403, "forbidden", "Only the callee can accept the call");
-
-    const payload = (body.payload ?? {}) as Record<string, unknown>;
-    if (JSON.stringify(payload).length > MAX_SIGNAL_PAYLOAD_LENGTH) {
-      throw new ApiError(413, "payload_too_large", "Signalling payload is too large");
+    if (
+      (FINISHED_STATUSES as readonly string[]).includes(call.status) &&
+      body.type !== "end"
+    ) {
+      throw new ApiError(410, "call_finished", "This call has already ended");
     }
 
-    if (body.type === "accept") {
-      const [updatedCall] = await db
-        .update(calls)
-        .set({ status: "active", answeredAt: new Date() })
-        .where(and(eq(calls.id, id), eq(calls.status, "ringing")))
-        .returning({ id: calls.id });
+    if (body.type === "offer" && !isInitiator) {
+      throw new ApiError(403, "forbidden", "Only the caller can send an offer");
+    }
 
-      if (!updatedCall) throw new ApiError(409, "call_not_ringing", "This call can no longer be accepted");
+    if (body.type === "answer" && !isCallee) {
+      throw new ApiError(403, "forbidden", "Only the recipient can send an answer");
+    }
+
+    if (body.type === "accept" && !isCallee) {
+      throw new ApiError(403, "forbidden", "Only the recipient can accept this call");
+    }
+
+    if (
+      body.payload &&
+      JSON.stringify(body.payload).length > 100_000
+    ) {
+      throw new ApiError(413, "payload_too_large", "Call signal payload is too large");
     }
 
     if (body.type === "end") {
-      const durationMs = call.answeredAt ? Math.max(0, Date.now() - call.answeredAt.getTime()) : 0;
       await db
         .update(calls)
-        .set({ status: "ended", endedAt: new Date(), durationMs, endedReason: "hangup" })
-        .where(and(eq(calls.id, id), ne(calls.status, "ended")));
+        .set({
+          status: "ended",
+          endedAt: new Date(),
+          endedReason: "ended",
+        })
+        .where(
+          and(
+            eq(calls.id, id),
+            ne(calls.status, "ended"),
+            ne(calls.status, "declined"),
+            ne(calls.status, "missed"),
+            ne(calls.status, "failed"),
+          ),
+        );
     }
 
     await db.insert(callSignals).values({
       callId: id,
       fromUserId: user.id,
       type: body.type,
-      payload,
+      payload: body.payload ?? {},
     });
 
     return ok({ queued: true });

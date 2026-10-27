@@ -1,42 +1,47 @@
-import { and, eq, sql, ne } from "drizzle-orm";
+
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { calls, notifications, profiles, callSignals } from "@/db/schema";
+import { calls, callSignals } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
-import { ApiError, ok, rateLimit, readBody, toResponse } from "@/lib/http";
+import { ApiError, ok, readBody, toResponse } from "@/lib/http";
+import { notify } from "@/lib/services";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type Params = { params: Promise<{ id: string }> };
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
 
-const schema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("accept") }),
-  z.object({ action: z.literal("decline") }),
-  z.object({ action: z.literal("end") }),
-]);
+const FINISHED_STATUSES = [
+  "ended",
+  "declined",
+  "missed",
+  "failed",
+] as const;
 
-async function load(id: string) {
-  const [row] = await db.select().from(calls).where(eq(calls.id, id)).limit(1);
-  if (!row) throw new ApiError(404, "not_found", "Call not found");
-  return row;
-}
-
-export async function GET(req: Request, { params }: Params) {
+export async function GET(req: Request, context: RouteContext) {
   try {
     const user = await requireUser(req);
-    const { id } = await params;
-    const call = await load(id);
-    
-    if (call.initiatorId !== user.id && call.calleeId !== user.id) {
-      throw new ApiError(403, "forbidden");
+    const { id } = await context.params;
+
+    const [call] = await db
+      .select()
+      .from(calls)
+      .where(eq(calls.id, id))
+      .limit(1);
+
+    if (!call) {
+      throw new ApiError(404, "call_not_found", "Call not found");
     }
 
-    const [peer] = await db
-      .select({ displayName: profiles.displayName, username: profiles.username, avatarKey: profiles.avatarKey })
-      .from(profiles)
-      .where(eq(profiles.id, call.initiatorId === user.id ? call.calleeId : call.initiatorId))
-      .limit(1);
+    const isInitiator = call.initiatorId === user.id;
+    const isCallee = call.calleeId === user.id;
+
+    if (!isInitiator && !isCallee) {
+      throw new ApiError(403, "forbidden", "You are not a participant in this call");
+    }
 
     return ok({
       call: {
@@ -45,110 +50,168 @@ export async function GET(req: Request, { params }: Params) {
         status: call.status,
         initiatorId: call.initiatorId,
         calleeId: call.calleeId,
-        durationMs: call.durationMs,
-        createdAt: call.createdAt.toISOString(),
+        conversationId: call.conversationId,
+        isInitiator,
         answeredAt: call.answeredAt?.toISOString() ?? null,
+        createdAt: call.createdAt.toISOString(),
         endedAt: call.endedAt?.toISOString() ?? null,
-        isInitiator: call.initiatorId === user.id,
+        durationMs: call.durationMs,
         endedReason: call.endedReason,
       },
-      peer: peer
-        ? {
-            displayName: peer.displayName,
-            username: peer.username,
-            avatarUrl: peer.avatarKey ? `/api/media/${peer.avatarKey}` : null,
-          }
-        : null,
     });
   } catch (error) {
     return toResponse(error);
   }
 }
 
-export async function POST(req: Request, { params }: Params) {
+export async function POST(req: Request, context: RouteContext) {
   try {
     const user = await requireUser(req);
-    const { id } = await params;
-    const body = await readBody(req, schema);
-    await rateLimit(`call-state:${user.id}`, 60, 60);
-    const call = await load(id);
+    const { id } = await context.params;
+    const body = await readBody(
+  req,
+  z.object({
+    action: z.enum(["accept", "decline", "end"]),
+  }),
+);
 
-    if (call.initiatorId !== user.id && call.calleeId !== user.id) {
-      throw new ApiError(403, "forbidden");
+    const [call] = await db
+      .select()
+      .from(calls)
+      .where(eq(calls.id, id))
+      .limit(1);
+
+    if (!call) {
+      throw new ApiError(404, "call_not_found", "Call not found");
+    }
+
+    const isInitiator = call.initiatorId === user.id;
+    const isCallee = call.calleeId === user.id;
+
+    if (!isInitiator && !isCallee) {
+      throw new ApiError(403, "forbidden", "You are not a participant in this call");
     }
 
     if (body.action === "accept") {
-      if (call.calleeId !== user.id) throw new ApiError(403, "forbidden", "Only the callee can accept");
-      if (call.status !== "ringing") throw new ApiError(409, "call_not_ringing", "The call is no longer ringing");
-      
-      const [updated] = await db
-        .update(calls)
-        .set({ status: "active", answeredAt: new Date() })
-        .where(and(eq(calls.id, id), eq(calls.status, "ringing")))
-        .returning();
+      if (!isCallee) {
+        throw new ApiError(403, "forbidden", "Only the recipient can accept this call");
+      }
 
-      if (!updated) throw new ApiError(409, "call_already_handled", "This call was already accepted or finished");
+      const [updatedCall] = await db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(calls)
+          .set({
+            status: "active",
+            answeredAt: new Date(),
+          })
+          .where(
+            and(
+              eq(calls.id, id),
+              eq(calls.status, "ringing"),
+            ),
+          )
+          .returning();
 
-      return ok({ status: "active", answeredAt: updated.answeredAt?.toISOString() ?? null });
+        if (!updated) {
+          throw new ApiError(
+            409,
+            "call_not_ringing",
+            "This call can no longer be accepted",
+          );
+        }
+
+        await tx.insert(callSignals).values({
+          callId: id,
+          fromUserId: user.id,
+          type: "accept",
+          payload: {},
+        });
+
+        return [updated];
+      });
+
+      return ok({
+        call: {
+          id: updatedCall.id,
+          status: updatedCall.status,
+          answeredAt: updatedCall.answeredAt?.toISOString() ?? null,
+        },
+      });
     }
 
     if (body.action === "decline") {
-      if (call.status !== "ringing") throw new ApiError(409, "call_not_ringing", "The call is no longer ringing");
-      
-      const [updated] = await db
-        .update(calls)
-        .set({ status: "declined", endedAt: new Date(), endedReason: "declined" })
-        .where(and(eq(calls.id, id), eq(calls.status, "ringing")))
-        .returning();
+      if (!isCallee) {
+        throw new ApiError(403, "forbidden", "Only the recipient can decline this call");
+      }
 
-      if (!updated) throw new ApiError(409, "call_already_handled", "This call was already accepted or finished");
+      if (call.status !== "ringing") {
+        throw new ApiError(409, "call_not_ringing", "This call is no longer ringing");
+      }
 
-      // 🔥 ДОБАВЛЕНО: Сигнал об отклонении для второго участника
-      await db.insert(callSignals).values({
-        callId: id,
-        fromUserId: user.id,
-        type: "decline",
-        payload: {},
+      await db.transaction(async (tx) => {
+        await tx
+          .update(calls)
+          .set({
+            status: "declined",
+            endedAt: new Date(),
+            endedReason: "declined",
+          })
+          .where(
+            and(
+              eq(calls.id, id),
+              eq(calls.status, "ringing"),
+            ),
+          );
+
+        await tx.insert(callSignals).values({
+          callId: id,
+          fromUserId: user.id,
+          type: "decline",
+          payload: {},
+        });
       });
 
-      await notifyPeer(call.initiatorId === user.id ? call.calleeId : call.initiatorId, user.id, id, "declined");
+      await notify({
+        userId: call.initiatorId,
+        type: "call",
+        actorId: user.id,
+        entityType: "call",
+        entityId: id,
+        preview: "declined",
+        category: "calls",
+      });
+
       return ok({ status: "declined" });
     }
 
-    const durationMs = call.answeredAt ? Math.max(0, Date.now() - call.answeredAt.getTime()) : 0;
-    
-    const [updated] = await db
-      .update(calls)
-      .set({ status: "ended", endedAt: new Date(), endedReason: "hangup", durationMs })
-      .where(and(eq(calls.id, id), ne(calls.status, "ended")))
-      .returning();
+    if (body.action === "end") {
+      if ((FINISHED_STATUSES as readonly string[]).includes(call.status)) {
+        return ok({ status: call.status });
+      }
 
-    if (!updated) throw new ApiError(409, "call_already_ended", "This call has already been ended");
+      await db.transaction(async (tx) => {
+        await tx
+          .update(calls)
+          .set({
+            status: "ended",
+            endedAt: new Date(),
+            endedReason: "ended",
+          })
+          .where(eq(calls.id, id));
 
-    // 🔥 ДОБАВЛЕНО: Сигнал о завершении для второго участника
-    await db.insert(callSignals).values({
-      callId: id,
-      fromUserId: user.id,
-      type: "end",
-      payload: {},
-    });
+        await tx.insert(callSignals).values({
+          callId: id,
+          fromUserId: user.id,
+          type: "end",
+          payload: {},
+        });
+      });
 
-    await notifyPeer(call.initiatorId === user.id ? call.calleeId : call.initiatorId, user.id, id, "ended");
-    return ok({ status: "ended", durationMs });
+      return ok({ status: "ended" });
+    }
+
+    throw new ApiError(400, "invalid_action", "Unsupported call action");
   } catch (error) {
     return toResponse(error);
   }
 }
-
-async function notifyPeer(peerId: string, actorId: string, callId: string, type: "declined" | "ended") {
-  await db.insert(notifications).values({
-    userId: peerId,
-    type: type === "declined" ? "missedCall" : "call",
-    actorId,
-    entityType: "call",
-    entityId: callId,
-    groupKey: `call:${callId}:${type}`,
-  });
-}
-
-void sql;
