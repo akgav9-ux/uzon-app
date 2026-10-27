@@ -9,20 +9,9 @@ import { Avatar, Button } from "@/components/ui";
 import { get, post as postApi, qk } from "@/lib/client/api";
 import { cn } from "@/lib/utils";
 
+// ... (типы CallState, Signal, IceServer остаются как были) ...
 type CallState = {
-  call: {
-    id: string;
-    kind: "audio" | "video";
-    status: string;
-    initiatorId: string;
-    calleeId: string;
-    durationMs: number;
-    createdAt: string;
-    answeredAt: string | null;
-    endedAt: string | null;
-    isInitiator: boolean;
-    endedReason: string | null;
-  };
+  call: { id: string; kind: "audio" | "video"; status: string; initiatorId: string; calleeId: string; durationMs: number; createdAt: string; answeredAt: string | null; endedAt: string | null; isInitiator: boolean; endedReason: string | null; };
   peer: { displayName: string; username: string; avatarUrl: string | null } | null;
 };
 type Signal = { id: string; type: string; payload: Record<string, unknown>; fromUserId: string; createdAt: string };
@@ -93,8 +82,9 @@ export function CallScreen({ callId }: { callId: string }) {
         remoteAudio.current.muted = false;
         await remoteAudio.current.play();
         setAudioBlocked(false);
+        console.log("🔊 Remote audio playing successfully");
       } catch (err) {
-        console.warn("Autoplay blocked by browser:", err);
+        console.warn("🔇 Autoplay blocked by browser:", err);
         setAudioBlocked(true);
       }
     }
@@ -113,28 +103,30 @@ export function CallScreen({ callId }: { callId: string }) {
       if (event.candidate) void sendSignal("ice", { candidate: event.candidate.toJSON() });
     };
     
+    // 🚨 ЛОГИ ВНУТРИ ONTRACK
     pc.ontrack = (event) => {
+      console.log("📥 GOT REMOTE TRACK:", event.track.kind, event.track.id, event.streams.length);
+      
       const remoteStream = event.streams[0] ?? new MediaStream([event.track]);
       
-      // Видео
       if (remoteVideo.current) {
         remoteVideo.current.srcObject = remoteStream;
       }
       
-      // Аудио (через невидимый тег, чтобы не было эха)
       if (remoteAudio.current) {
         remoteAudio.current.srcObject = remoteStream;
         void playRemoteAudio();
       }
 
-      // Если трек был замьючен на уровне браузера, размьючиваем его
       event.track.onunmute = () => {
+        console.log("🔊 Track unmuted:", event.track.kind);
         if (event.track.kind === "audio") void playRemoteAudio();
       };
     };
     
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
+      console.log("🔗 WebRTC State:", state);
       if (state === "connected") setStatus("active");
       if (state === "failed") {
         setError(t("call.iceWarning"));
@@ -229,11 +221,11 @@ export function CallScreen({ callId }: { callId: string }) {
     }
   }
 
-  // 🔥 ГЛАВНЫЙ ФИКС: разблокировка звука по клику
   const unlockAudio = useCallback(() => {
     if (remoteAudio.current) {
       remoteAudio.current.muted = false;
       remoteAudio.current.play().catch(() => {});
+      console.log("🔓 unlockAudio clicked");
     }
   }, []);
 
@@ -297,8 +289,7 @@ export function CallScreen({ callId }: { callId: string }) {
       onClick={unlockAudio}
       onTouchStart={unlockAudio}
     >
-      
-      {/* 🔥 Скрытый тег для аудио. Обязательно с muted={false} и playsInline */}
+      {/* Скрытый тег для аудио. Добавлен ref и autoPlay */}
       <audio ref={remoteAudio} autoPlay playsInline className="hidden" />
 
       <video ref={remoteVideo} autoPlay playsInline className={cn("absolute inset-0 h-full w-full object-cover transition-opacity duration-500", status !== "active" && "opacity-0")} />
@@ -334,7 +325,6 @@ export function CallScreen({ callId }: { callId: string }) {
 
       <div className="relative z-30 mt-auto bg-[#1c1c1e]/90 backdrop-blur-xl border-t border-white/5 pb-8 pt-4 px-6">
         
-        {/* Плашка, если браузер заблокировал звук */}
         {audioBlocked && !finished && (
           <button onClick={unlockAudio} className="mb-4 w-full rounded-xl bg-yellow-500 px-4 py-3 text-sm font-bold text-black animate-pulse">
             Нажмите сюда, чтобы включить звук
