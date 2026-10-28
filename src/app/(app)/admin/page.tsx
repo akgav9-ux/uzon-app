@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Flag, ShieldAlert, Trash2, XCircle } from "lucide-react";
+import { BarChart3, CheckCircle2, Flag, ShieldAlert, Trash2, XCircle } from "lucide-react";
 import { useState } from "react";
 import { useApp } from "@/components/providers";
 import { Badge, Button, Card, EmptyState, ErrorState, Field, Modal, Skeleton, Tabs, Textarea } from "@/components/ui";
@@ -71,12 +71,26 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-4">
-      <header>
-        <h1 className="flex items-center gap-2 text-xl font-semibold text-ink">
-          <ShieldAlert className="h-5 w-5 text-brand" />
-          {t("admin.title")}
-        </h1>
-        <p className="text-xs text-muted">{t("admin.queue")} · {t("admin.log")}</p>
+            <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="flex items-center gap-2 text-xl font-semibold text-ink">
+            <ShieldAlert className="h-5 w-5 text-brand" />
+            {t("admin.title")}
+          </h1>
+          <p className="text-xs text-muted">
+            {t("admin.queue")} · {t("admin.log")}
+          </p>
+        </div>
+
+        <Link href="/admin/analytics">
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<BarChart3 className="h-4 w-4" />}
+          >
+            Аналитика
+          </Button>
+        </Link>
       </header>
 
       {data.stats && (
