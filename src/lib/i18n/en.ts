@@ -102,6 +102,7 @@ export const en = {
   "post.photo": "Photo",
   "post.create": "Create post",
   "post.comment": "Comment",
+  "post.like": "Like",
   "post.comments": "Comments",
   "post.writeComment": "Write a comment…",
   "post.noComments": "No comments yet",
