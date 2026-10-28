@@ -350,9 +350,9 @@ export default function AdminAnalyticsPage() {
 
         <div className="flex items-center gap-3">
           <span className="hidden items-center gap-2 rounded-full border border-[#173a3a] bg-[#08231f] px-3 py-2 text-xs text-emerald-300 sm:flex">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-            Локальная аналитика
-          </span>
+  <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+  Система активна
+</span>
           <button
             type="button"
             onClick={() => query.refetch()}
