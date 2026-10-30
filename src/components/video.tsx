@@ -205,12 +205,14 @@ export function VideoPlayer({
   viewRegisterMs = 3000,
   source = "videos",
   onEnded,
+  onCommentsClick,
   autoPlay = false,
 }: {
   video: VideoPayload;
   viewRegisterMs?: number;
   source?: string;
   onEnded?: () => void;
+  onCommentsClick?: () => void;
   autoPlay?: boolean;
 }) {
   const { t, fmt, toast, user } = useApp();
@@ -596,11 +598,21 @@ export function VideoPlayer({
 
             <IconButton
               label={t("post.comments")}
-              onClick={() =>
+              onClick={() => {
+                if (onCommentsClick) {
+                  onCommentsClick();
+                  window.setTimeout(() => {
+                    document
+                      .getElementById("video-comments")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }, 80);
+                  return;
+                }
+
                 document
                   .getElementById("video-comments")
-                  ?.scrollIntoView({ behavior: "smooth" })
-              }
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
             >
               <MessageCircle className="h-4 w-4" />
             </IconButton>

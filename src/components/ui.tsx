@@ -184,27 +184,51 @@ export function Avatar({
   ring?: "story" | "brand" | null;
   className?: string;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  // Сбрасываем ошибку при изменении URL
+  useEffect(() => {
+    setImageFailed(false);
+  }, [url]);
+
+  const showImage = Boolean(url?.trim()) && !imageFailed;
+
   return (
     <span
-      className={cn("relative inline-flex shrink-0 items-center justify-center rounded-full", className)}
+      className={cn(
+        "relative inline-flex shrink-0 items-center justify-center rounded-full",
+        className,
+      )}
       style={{ width: size, height: size }}
     >
       {ring && (
         <span
           className={cn(
             "absolute -inset-0.5 rounded-full",
-            ring === "story" ? "bg-gradient-to-tr from-brand via-uzblue to-uzgreen" : "bg-brand",
+            ring === "story"
+              ? "bg-gradient-to-tr from-brand via-uzblue to-uzgreen"
+              : "bg-brand",
           )}
           aria-hidden
         />
       )}
+
       <span
         className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-white"
-        style={{ background: url ? undefined : avatarGradient(name) }}
+        style={{
+          background: showImage ? undefined : avatarGradient(name),
+        }}
       >
-        {url ? (
+        {showImage ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={url} alt="" className="h-full w-full object-cover" loading="lazy" />
+          <img
+            key={url} // 🔥 ВОТ ЭТОТ ФИКС: заставляет React пересоздать тег при смене URL
+            src={url!}
+            alt={name}
+            className="h-full w-full object-cover"
+            loading="lazy"
+            onError={() => setImageFailed(true)}
+          />
         ) : (
           initials(name)
         )}

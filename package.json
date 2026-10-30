@@ -1,14 +1,17 @@
 {
   "name": "nextjs-postgresql-template",
   "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
-    "db:push": "drizzle-kit push --config=drizzle.config.ts"
-  },
+  
+"scripts": {
+  "dev": "next dev",
+  "build": "next build",
+  "start": "next start",
+  "lint": "eslint .",
+  "typecheck": "tsc --noEmit",
+  "db:push": "drizzle-kit push --config=drizzle.config.ts",
+  "grant-admin": "node src/scripts/grant-admin.mjs"
+},
+
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1152.0",
     "@aws-sdk/s3-request-presigner": "^3.1152.0",
