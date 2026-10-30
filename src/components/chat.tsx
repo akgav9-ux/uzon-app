@@ -80,10 +80,10 @@ function useTr() {
   const app = useApp();
   const rawT = app.t as unknown as (key: string, vars?: Record<string, unknown>) => string;
   const raw = app as unknown as { locale?: string; lang?: string; language?: string };
-  const [domLang, setDomLang] = useState("ru");
-  useEffect(() => {
-    setDomLang((document.documentElement.lang || "ru").slice(0, 2));
-  }, []);
+  // Инициализируем один раз на клиенте, без hydration mismatch
+  const [domLang] = useState(() =>
+    typeof document === "undefined" ? "ru" : (document.documentElement.lang || "ru").slice(0, 2),
+  );
   const lang = String(raw.locale || raw.lang || raw.language || domLang).slice(0, 2).toLowerCase();
 
   const tr = useCallback(
@@ -179,11 +179,14 @@ function seededBars(seed: string, n: number): number[] {
   return out;
 }
 
-/* Один активный плеер за раз */
-let activeMedia: HTMLMediaElement | null = null;
+/* Один активный плеер за раз (WeakRef для корректной очистки) */
+let activeMediaRef: WeakRef<HTMLMediaElement> | null = null;
 function claimMedia(el: HTMLMediaElement) {
-  if (activeMedia && activeMedia !== el) activeMedia.pause();
-  activeMedia = el;
+  const current = activeMediaRef?.deref();
+  if (current && current !== el) {
+    try { current.pause(); } catch { /* ignore */ }
+  }
+  activeMediaRef = new WeakRef(el);
 }
 
 let EMOJI_ONLY: RegExp | null = null;
@@ -196,17 +199,25 @@ const isEmojiOnly = (text: string) => Boolean(EMOJI_ONLY && text.trim().length >
 
 /* ----------------------------- данные эмодзи ----------------------------- */
 
-const EMOJI_DATA: { id: string; icon: string; labelKey: string; items: string[] }[] = [
+type EmojiItem = { emoji: string; keywords: string };
+type EmojiCategory = { id: string; icon: string; labelKey: string; items: EmojiItem[] };
+
+const EMOJI_DATA: EmojiCategory[] = [
   {
     id: "smileys",
     icon: "😀",
     labelKey: "chat.emojiSmileys",
     items: [
-      "😀 grin улыбка", "😃 happy радость", "😄 laugh смех", "😁 beam", "😆 lol", "😅 sweat неловко", "😂 joy ржу смех", "🤣 rofl",
-      "🙂 smile", "😉 wink подмигнуть", "😊 blush", "😇 angel ангел", "🥰 love влюблен", "😍 heart eyes", "🤩 wow star", "😘 kiss поцелуй",
-      "😋 yum вкусно", "😜 tongue язык", "🤪 crazy", "🤗 hug обнять", "🤔 think думаю", "🤨 hmm", "😐 neutral", "😶 silent молчу",
-      "🙄 eyeroll", "😏 smirk", "😴 sleep спать", "😷 mask маска", "🤒 sick болен", "😎 cool круто", "🤓 nerd", "😢 sad cry грусть",
-      "😭 sob плач", "😤 angry", "😡 rage злой", "🥺 plead прошу", "😱 scream страх", "😳 flushed", "🥳 party", "😬 grimace",
+      { emoji: "😀", keywords: "grin улыбка" }, { emoji: "😃", keywords: "happy радость" }, { emoji: "😄", keywords: "laugh смех" }, { emoji: "😁", keywords: "beam" },
+      { emoji: "😆", keywords: "lol" }, { emoji: "😅", keywords: "sweat неловко" }, { emoji: "😂", keywords: "joy ржу смех" }, { emoji: "🤣", keywords: "rofl" },
+      { emoji: "🙂", keywords: "smile" }, { emoji: "😉", keywords: "wink подмигнуть" }, { emoji: "😊", keywords: "blush" }, { emoji: "😇", keywords: "angel ангел" },
+      { emoji: "🥰", keywords: "love влюблен" }, { emoji: "😍", keywords: "heart eyes" }, { emoji: "🤩", keywords: "wow star" }, { emoji: "😘", keywords: "kiss поцелуй" },
+      { emoji: "😋", keywords: "yum вкусно" }, { emoji: "😜", keywords: "tongue язык" }, { emoji: "🤪", keywords: "crazy" }, { emoji: "🤗", keywords: "hug обнять" },
+      { emoji: "🤔", keywords: "think думаю" }, { emoji: "🤨", keywords: "hmm" }, { emoji: "😐", keywords: "neutral" }, { emoji: "😶", keywords: "silent молчу" },
+      { emoji: "🙄", keywords: "eyeroll" }, { emoji: "😏", keywords: "smirk" }, { emoji: "😴", keywords: "sleep спать" }, { emoji: "😷", keywords: "mask маска" },
+      { emoji: "🤒", keywords: "sick болен" }, { emoji: "😎", keywords: "cool круто" }, { emoji: "🤓", keywords: "nerd" }, { emoji: "😢", keywords: "sad cry грусть" },
+      { emoji: "😭", keywords: "sob плач" }, { emoji: "😤", keywords: "angry" }, { emoji: "😡", keywords: "rage злой" }, { emoji: "🥺", keywords: "plead прошу" },
+      { emoji: "😱", keywords: "scream страх" }, { emoji: "😳", keywords: "flushed" }, { emoji: "🥳", keywords: "party" }, { emoji: "😬", keywords: "grimace" },
     ],
   },
   {
@@ -214,9 +225,12 @@ const EMOJI_DATA: { id: string; icon: string; labelKey: string; items: string[] 
     icon: "👍",
     labelKey: "chat.emojiGestures",
     items: [
-      "👍 like ok хорошо", "👎 dislike", "👏 clap аплодисменты", "🙌 hooray", "🙏 pray спасибо please", "🤝 handshake", "👌 ok", "✌️ peace",
-      "🤞 luck удача", "🤟 love-you", "👋 wave привет salom", "🤙 call", "💪 strong сила", "👀 eyes глаза", "🫶 heart-hands", "🤷 shrug",
-      "🤦 facepalm", "🙈 monkey обезьяна", "🙉 hear", "🙊 speak", "🫡 salute", "👊 fist", "✊ power", "☝️ one",
+      { emoji: "👍", keywords: "like ok хорошо" }, { emoji: "👎", keywords: "dislike" }, { emoji: "👏", keywords: "clap аплодисменты" }, { emoji: "🙌", keywords: "hooray" },
+      { emoji: "🙏", keywords: "pray спасибо please" }, { emoji: "🤝", keywords: "handshake" }, { emoji: "👌", keywords: "ok" }, { emoji: "✌️", keywords: "peace" },
+      { emoji: "🤞", keywords: "luck удача" }, { emoji: "🤟", keywords: "love-you" }, { emoji: "👋", keywords: "wave привет salom" }, { emoji: "🤙", keywords: "call" },
+      { emoji: "💪", keywords: "strong сила" }, { emoji: "👀", keywords: "eyes глаза" }, { emoji: "🫶", keywords: "heart-hands" }, { emoji: "🤷", keywords: "shrug" },
+      { emoji: "🤦", keywords: "facepalm" }, { emoji: "🙈", keywords: "monkey обезьяна" }, { emoji: "🙉", keywords: "hear" }, { emoji: "🙊", keywords: "speak" },
+      { emoji: "🫡", keywords: "salute" }, { emoji: "👊", keywords: "fist" }, { emoji: "✊", keywords: "power" }, { emoji: "☝️", keywords: "one" },
     ],
   },
   {
@@ -224,9 +238,11 @@ const EMOJI_DATA: { id: string; icon: string; labelKey: string; items: string[] 
     icon: "❤️",
     labelKey: "chat.emojiHearts",
     items: [
-      "❤️ love сердце yurak", "🧡 orange", "💛 yellow", "💚 green", "💙 blue", "💜 purple", "🖤 black", "🤍 white",
-      "💔 broken разбито", "💕 hearts", "💖 sparkle-heart", "💯 hundred сто", "🔥 fire огонь olov", "✨ sparkles", "⭐ star звезда yulduz", "🎉 party праздник",
-      "🎊 confetti", "🎁 gift подарок", "💥 boom", "💫 dizzy",
+      { emoji: "❤️", keywords: "love сердце yurak" }, { emoji: "🧡", keywords: "orange" }, { emoji: "💛", keywords: "yellow" }, { emoji: "💚", keywords: "green" },
+      { emoji: "💙", keywords: "blue" }, { emoji: "💜", keywords: "purple" }, { emoji: "🖤", keywords: "black" }, { emoji: "🤍", keywords: "white" },
+      { emoji: "💔", keywords: "broken разбито" }, { emoji: "💕", keywords: "hearts" }, { emoji: "💖", keywords: "sparkle-heart" }, { emoji: "💯", keywords: "hundred сто" },
+      { emoji: "🔥", keywords: "fire огонь olov" }, { emoji: "✨", keywords: "sparkles" }, { emoji: "⭐", keywords: "star звезда yulduz" }, { emoji: "🎉", keywords: "party праздник" },
+      { emoji: "🎊", keywords: "confetti" }, { emoji: "🎁", keywords: "gift подарок" }, { emoji: "💥", keywords: "boom" }, { emoji: "💫", keywords: "dizzy" },
     ],
   },
   {
@@ -234,9 +250,12 @@ const EMOJI_DATA: { id: string; icon: string; labelKey: string; items: string[] 
     icon: "⚽",
     labelKey: "chat.emojiObjects",
     items: [
-      "⚽ football футбол", "🏀 basketball", "🎮 game игра", "🎬 movie кино", "🎵 music музыка", "🎤 mic", "🎧 headphones наушники", "📷 camera камера",
-      "📱 phone телефон", "💻 laptop ноутбук", "🚀 rocket ракета", "✈️ plane самолет", "🚗 car машина", "☕ coffee кофе", "🍕 pizza пицца", "🍔 burger",
-      "🍉 watermelon арбуз tarvuz", "🍇 grapes виноград", "🍰 cake торт", "🍚 plov плов osh", "🌹 rose роза", "🌞 sun солнце", "🌙 moon луна", "🌈 rainbow радуга",
+      { emoji: "⚽", keywords: "football футбол" }, { emoji: "🏀", keywords: "basketball" }, { emoji: "🎮", keywords: "game игра" }, { emoji: "🎬", keywords: "movie кино" },
+      { emoji: "🎵", keywords: "music музыка" }, { emoji: "🎤", keywords: "mic" }, { emoji: "🎧", keywords: "headphones наушники" }, { emoji: "📷", keywords: "camera камера" },
+      { emoji: "📱", keywords: "phone телефон" }, { emoji: "💻", keywords: "laptop ноутбук" }, { emoji: "🚀", keywords: "rocket ракета" }, { emoji: "✈️", keywords: "plane самолет" },
+      { emoji: "🚗", keywords: "car машина" }, { emoji: "☕", keywords: "coffee кофе" }, { emoji: "🍕", keywords: "pizza пицца" }, { emoji: "🍔", keywords: "burger" },
+      { emoji: "🍉", keywords: "watermelon арбуз tarvuz" }, { emoji: "🍇", keywords: "grapes виноград" }, { emoji: "🍰", keywords: "cake торт" }, { emoji: "🍚", keywords: "plov плов osh" },
+      { emoji: "🌹", keywords: "rose роза" }, { emoji: "🌞", keywords: "sun солнце" }, { emoji: "🌙", keywords: "moon луна" }, { emoji: "🌈", keywords: "rainbow радуга" },
     ],
   },
   {
@@ -244,11 +263,16 @@ const EMOJI_DATA: { id: string; icon: string; labelKey: string; items: string[] 
     icon: "🏳️",
     labelKey: "chat.emojiFlags",
     items: [
-      "🇺🇿 uzbekistan узбекистан o‘zbekiston", "🇷🇺 russia россия", "🇬🇧 uk britain", "🇺🇸 usa сша", "🇰🇿 kazakhstan казахстан", "🇹🇷 turkey турция",
-      "🇨🇳 china китай", "🇩🇪 germany германия", "🇫🇷 france франция", "🇰🇬 kyrgyzstan киргизия", "🇹🇯 tajikistan таджикистан", "🇦🇿 azerbaijan азербайджан",
+      { emoji: "🇺🇿", keywords: "uzbekistan узбекистан o‘zbekiston" }, { emoji: "🇷🇺", keywords: "russia россия" }, { emoji: "🇬🇧", keywords: "uk britain" }, { emoji: "🇺🇸", keywords: "usa сша" },
+      { emoji: "🇰🇿", keywords: "kazakhstan казахстан" }, { emoji: "🇹🇷", keywords: "turkey турция" }, { emoji: "🇨🇳", keywords: "china китай" }, { emoji: "🇩🇪", keywords: "germany германия" },
+      { emoji: "🇫🇷", keywords: "france франция" }, { emoji: "🇰🇬", keywords: "kyrgyzstan киргизия" }, { emoji: "🇹🇯", keywords: "tajikistan таджикистан" }, { emoji: "🇦🇿", keywords: "azerbaijan азербайджан" },
     ],
   },
 ];
+
+/* Предварительно нормализованные плоские списки для быстрого поиска */
+const EMOJI_FLAT: EmojiItem[] = EMOJI_DATA.flatMap((c) => c.items);
+const EMOJI_BY_ID: Record<string, EmojiCategory> = Object.fromEntries(EMOJI_DATA.map((c) => [c.id, c]));
 
 const RECENT_KEY = "uzon.emoji.recent";
 function loadRecent(): string[] {
@@ -291,13 +315,11 @@ function EmojiPanel({ tr, recent, onPick }: { tr: Tr; recent: string[]; onPick: 
   const list = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (term) {
-      return EMOJI_DATA.flatMap((c) => c.items)
-        .filter((row) => row.toLowerCase().includes(term))
-        .map((row) => row.split(" ")[0]);
+      return EMOJI_FLAT.filter((row) => row.keywords.toLowerCase().includes(term)).map((row) => row.emoji);
     }
     if (tab === "recent") return recent;
-    const cat = EMOJI_DATA.find((c) => c.id === tab);
-    return cat ? cat.items.map((row) => row.split(" ")[0]) : [];
+    const cat = EMOJI_BY_ID[tab];
+    return cat ? cat.items.map((row) => row.emoji) : [];
   }, [q, tab, recent]);
 
   return (
@@ -391,9 +413,10 @@ export function ChatList({ onOpen, activeId }: { onOpen: (conversation: Conversa
 
   const conversations = useMemo(() => {
     const list = query.data?.conversations ?? [];
+    const needle = term.trim().toLowerCase();
     return list
       .filter((c) => filter === "all" || c.kind === filter)
-      .filter((c) => !term || (c.title ?? "").toLowerCase().includes(term.toLowerCase()));
+      .filter((c) => !needle || (c.title ?? "").toLowerCase().includes(needle));
   }, [query.data, filter, term]);
 
   if (query.isLoading) return <div className="space-y-2">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>;
@@ -641,6 +664,7 @@ type PendingItem = {
   isNote?: boolean;
   status: "sending" | "failed";
   error?: string;
+  abort?: AbortController;
 };
 
 type ListRow = { type: "day"; key: string; label: string } | { type: "msg"; message: MessagePayload };
@@ -650,7 +674,7 @@ type ListRow = { type: "day"; key: string; label: string } | { type: "msg"; mess
 /* -------------------------------------------------------------------------- */
 
 export function ChatRoom({ conversationId, onBack }: { conversationId: string; onBack?: () => void }) {
-  const { t, user, toast } = useApp();
+  const { t, user, toast, fmt } = useApp(); // 🔥 ДОБАВЛЕН fmt
   const { tr, lang } = useTr();
   const queryClient = useQueryClient();
 
@@ -706,7 +730,10 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
 
   useEffect(() => {
     return () => {
-      pendingRef.current.forEach((p) => p.localUrl && URL.revokeObjectURL(p.localUrl));
+      pendingRef.current.forEach((p) => {
+        if (p.localUrl) URL.revokeObjectURL(p.localUrl);
+        if (p.abort) p.abort.abort();
+      });
     };
   }, []);
 
@@ -718,11 +745,11 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const messagesQuery = useQuery({
     queryKey: qk.messages(conversationId),
     queryFn: () => get<{ messages: MessagePayload[] }>(`/api/conversations/${conversationId}/messages?limit=40`),
-    refetchInterval: 5000,
-    staleTime: 2000,
+    refetchInterval: 8000,
+    staleTime: 3000,
   });
 
-  // 🔥 ИСПРАВЛЕНИЕ 1: Сортируем сообщения, чтобы старые были сверху
+  // Сортируем сообщения, чтобы старые были сверху
   const messages = useMemo(() => {
     const list = messagesQuery.data?.messages ?? [];
     return [...list].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -749,9 +776,10 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       out.push({ type: "msg", message });
     }
     return out;
-  }, [messages, tr, lang]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, lang]);
 
-  // 🔥 ИСПРАВЛЕНИЕ 2: Автоскролл вниз при новых сообщениях
+  // Автоскролл вниз при новых сообщениях
   useEffect(() => {
     if (messages.length === 0) return;
     if (firstScrollRef.current) {
@@ -813,6 +841,8 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     if (inflightRef.current.has(item.id)) return;
     inflightRef.current.add(item.id);
     setPending((list) => list.map((x) => (x.id === item.id ? { ...x, status: "sending", error: undefined } : x)));
+    const abort = new AbortController();
+    item.abort = abort;
     try {
       if (typeof navigator !== "undefined" && navigator.onLine === false) throw new Error(tr("chat.offline"));
       let payload: Record<string, unknown>;
@@ -823,12 +853,14 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         const uploaded = await uploadMedia(item.file, { purpose: item.kind });
         payload = { mediaId: uploaded.media.id, attachmentKind: item.kind, replyToId: item.replyToId };
       }
+      if (abort.signal.aborted) return;
       await postApi(`/api/conversations/${conversationId}/messages`, payload);
       await queryClient.refetchQueries({ queryKey: qk.messages(conversationId) });
       queryClient.invalidateQueries({ queryKey: qk.conversations });
       if (item.localUrl) URL.revokeObjectURL(item.localUrl);
       setPending((list) => list.filter((x) => x.id !== item.id));
     } catch (error) {
+      if (abort.signal.aborted) return;
       const message = error instanceof Error && error.message ? error.message : t("create.uploadFailed");
       setPending((list) => list.map((x) => (x.id === item.id ? { ...x, status: "failed", error: message } : x)));
     } finally {
@@ -853,6 +885,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     setPending((list) => {
       const found = list.find((x) => x.id === id);
       if (found?.localUrl) URL.revokeObjectURL(found.localUrl);
+      if (found?.abort) found.abort.abort();
       return list.filter((x) => x.id !== id);
     });
   };
@@ -958,14 +991,15 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   if (detail.isError) return <ErrorState message={t("errors.forbidden")} onRetry={() => detail.refetch()} />;
 
   const conversation = detail.data!.conversation;
+  // ИСПРАВЛЕНИЕ: используем myRole из detail.data, а не из conversation (там его нет)
+  const myRole = detail.data!.myRole;
   const pinned = messages.find((m) => m.pinned);
-  const canPost = conversation.kind !== "channel" || conversation.myRole === "owner" || conversation.myRole === "admin" || !conversation.onlyAdminsCanPost;
-  const canManage = detail.data!.myRole === "owner" || detail.data!.myRole === "admin" || Boolean(user && user.role !== "user");
+  const canPost = conversation.kind !== "channel" || myRole === "owner" || myRole === "admin" || !conversation.onlyAdminsCanPost;
+  const canManage = myRole === "owner" || myRole === "admin" || Boolean(user && user.role !== "user");
   const hasText = text.trim().length > 0;
 
   return (
-    // 🔥 ИСПРАВЛЕНИЕ 3: Высота на весь экран и flex-col, чтобы ничего не прыгало
-    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-background">
+    <div className="flex h-[100dvh] w-full max-w-4xl mx-auto flex-col overflow-hidden bg-background border-x border-line">
       {/* ------------------------------- ШАПКА ------------------------------- */}
       <header className="relative flex shrink-0 items-center gap-2 border-b border-line bg-surface/90 px-3 py-2.5 backdrop-blur">
         <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-brand/50 to-transparent" />
@@ -1009,7 +1043,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         <div
           ref={listRef}
           onScroll={onScroll}
-          className="h-full space-y-1.5 overflow-y-auto overflow-x-hidden px-3 py-3"
+          className="absolute inset-0 flex flex-col overflow-y-auto overflow-x-hidden px-3 py-3"
           style={{
             backgroundImage:
               "radial-gradient(circle at 15% 8%, color-mix(in srgb, var(--brand) 9%, transparent), transparent 38%), radial-gradient(circle at 90% 85%, color-mix(in srgb, var(--brand) 7%, transparent), transparent 42%)",
@@ -1026,7 +1060,9 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
               <MessageBubble
                 key={row.message.id}
                 message={row.message}
+                t={t}
                 tr={tr}
+                fmt={fmt}
                 onReply={() => {
                   setReplyTo(row.message);
                   taRef.current?.focus();
@@ -1212,7 +1248,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         />
       )}
 
-      {infoOpen && <ConversationInfoModal conversationId={conversationId} onClose={() => setInfoOpen(false)} members={detail.data!.members} myRole={detail.data!.myRole} />}
+      {infoOpen && <ConversationInfoModal key={conversationId} conversationId={conversationId} onClose={() => setInfoOpen(false)} members={detail.data!.members} myRole={detail.data!.myRole} />}
       {reportTarget && <ReportModal open onClose={() => setReportTarget(null)} entityType="message" entityId={reportTarget.id} />}
       {call.isPending && <p className="px-3 py-1 text-xs text-muted">{t("call.connecting")}</p>}
     </div>
@@ -1287,6 +1323,7 @@ function VoiceRecorder({
         cb.current.onCancel();
         return;
       }
+      // ИСПРАВЛЕНИЕ: проверяем alive после await
       if (!alive) {
         cleanup();
         return;
@@ -1303,6 +1340,12 @@ function VoiceRecorder({
         source.connect(analyser);
       } catch {
         analyser = null;
+      }
+
+      // Ещё одна проверка alive после создания AudioContext
+      if (!alive) {
+        cleanup();
+        return;
       }
 
       const mime = pickMime(AUDIO_MIMES);
@@ -1341,6 +1384,7 @@ function VoiceRecorder({
         cb.current.onPhase("review");
       };
 
+      // ИСПРАВЛЕНИЕ: присваиваем ctl.current ДО rec.start()
       ctl.current = {
         stop: () => {
           if (rec.state !== "inactive") {
@@ -1490,11 +1534,13 @@ function VideoRecorderOverlay({
   const cancelledRef = useRef(false);
   const unmountedRef = useRef(false);
   const resultUrlRef = useRef<string | null>(null);
+  const pressStartRef = useRef<{ time: number; x: number } | null>(null);
 
-  const stopStream = () => {
+  // ИСПРАВЛЕНИЕ: выносим stopStream в useCallback, чтобы избежать stale closure
+  const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-  };
+  }, []);
 
   const openStream = useCallback(
     async (mode: "user" | "environment") => {
@@ -1512,16 +1558,12 @@ function VideoRecorderOverlay({
         }
         streamRef.current = stream;
         setStage("ready");
-        navigator.mediaDevices
-          .enumerateDevices()
-          .then((devices) => setCanSwitch(devices.filter((d) => d.kind === "videoinput").length > 1))
-          .catch(() => {});
+        navigator.mediaDevices.enumerateDevices().then((devices) => setCanSwitch(devices.filter((d) => d.kind === "videoinput").length > 1)).catch(() => {});
       } catch (error) {
         if (!unmountedRef.current) setFatal(tr(mediaErrorKey(error, true)));
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [stopStream, tr],
   );
 
   useEffect(() => {
@@ -1555,7 +1597,7 @@ function VideoRecorderOverlay({
       stopStream();
       if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
     };
-  }, []);
+  }, [stopStream]);
 
   const startRecording = () => {
     const stream = streamRef.current;
@@ -1607,7 +1649,10 @@ function VideoRecorderOverlay({
     }, 200);
   };
 
-  const stopRecording = () => {
+  const stopRecording = (cancelled = false) => {
+    // ИСПРАВЛЕНИЕ: защищаем от повторного вызова
+    if (cancelledRef.current && cancelled) return;
+    cancelledRef.current = cancelled;
     const rec = recRef.current;
     if (rec && rec.state !== "inactive") {
       try {
@@ -1618,17 +1663,32 @@ function VideoRecorderOverlay({
     }
   };
 
-  const retake = () => {
-    if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
-    resultUrlRef.current = null;
-    setResult(null);
-    setSeconds(0);
-    void openStream(facing);
+  const onPointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    pressStartRef.current = { time: Date.now(), x: e.clientX };
+    if (stage === "ready") startRecording();
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!pressStartRef.current || stage !== "recording") return;
+    // ИСПРАВЛЕНИЕ: проверяем cancelledRef, чтобы не отменять повторно
+    if (e.clientX - pressStartRef.current.x < -80 && !cancelledRef.current) {
+      stopRecording(true);
+      pressStartRef.current = null;
+    }
+  };
+
+  const onPointerUp = () => {
+    if (stage === "recording") {
+      stopRecording(false);
+    }
+    pressStartRef.current = null;
   };
 
   const close = () => {
     cancelledRef.current = true;
-    stopRecording();
+    stopRecording(true);
     stopStream();
     onClose();
   };
@@ -1651,7 +1711,7 @@ function VideoRecorderOverlay({
       ) : (
         <>
           <p className="mb-4 h-5 text-center text-xs font-medium text-white/80">
-            {stage === "starting" ? tr("chat.camAsking") : stage === "ready" ? tr("chat.videoHint") : stage === "recording" ? tr("chat.videoRec", { sec: MAX_VIDEO_SEC }) : tr("chat.videoReview")}
+            {stage === "starting" ? tr("chat.camAsking") : stage === "ready" ? "Зажмите, чтобы записать" : stage === "recording" ? "Отпустите, чтобы отправить" : tr("chat.videoReview")}
           </p>
 
           <div className="relative h-[min(20rem,78vw)] w-[min(20rem,78vw)]">
@@ -1689,17 +1749,13 @@ function VideoRecorderOverlay({
           <div className="mt-6 flex items-center justify-center gap-6">
             {stage === "review" ? (
               <>
-                <button type="button" onClick={retake} className="flex items-center gap-2 rounded-full bg-white/15 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/25 active:scale-95">
+                <button type="button" onClick={() => { if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current); resultUrlRef.current = null; setResult(null); setSeconds(0); void openStream(facing); }} className="flex items-center gap-2 rounded-full bg-white/15 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/25 active:scale-95">
                   <RotateCcw className="h-4 w-4" />
                   {tr("chat.retake")}
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (!result) return;
-                    onSend(result.blob, result.mime, result.duration);
-                    close();
-                  }}
+                  onClick={() => { if (!result) return; onSend(result.blob, result.mime, result.duration); close(); }}
                   className="flex items-center gap-2 rounded-full bg-gradient-to-br from-brand to-brand/80 px-5 py-3 text-sm font-semibold text-white shadow-lg transition active:scale-95"
                 >
                   <Send className="h-4 w-4" />
@@ -1711,19 +1767,23 @@ function VideoRecorderOverlay({
                 <span className="h-12 w-12" />
                 <button
                   type="button"
-                  onClick={stage === "recording" ? stopRecording : startRecording}
+                  onPointerDown={onPointerDown}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                  onPointerCancel={() => stopRecording(true)}
                   disabled={stage === "starting"}
-                  aria-label={stage === "recording" ? tr("chat.stopRecord") : tr("chat.startRecord")}
-                  className="flex h-[72px] w-[72px] items-center justify-center rounded-full border-4 border-white transition active:scale-90 disabled:opacity-40"
+                  className={cn(
+                    "flex h-[72px] w-[72px] touch-none select-none items-center justify-center rounded-full border-4 border-white transition active:scale-90 disabled:opacity-40",
+                    stage === "recording" ? "bg-red-500" : "bg-transparent"
+                  )}
+                  style={{ touchAction: "none" }}
                 >
-                  {stage === "recording" ? <span className="h-6 w-6 rounded-md bg-red-500" /> : <span className="h-14 w-14 rounded-full bg-red-500" />}
+                  {stage === "recording" ? <span className="h-6 w-6 rounded-md bg-white" /> : <span className="h-14 w-14 rounded-full bg-red-500" />}
                 </button>
                 <button
                   type="button"
                   onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))}
                   disabled={!canSwitch || stage !== "ready"}
-                  aria-label={tr("chat.switchCam")}
-                  title={tr("chat.switchCam")}
                   className={cn("flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white transition hover:bg-white/25 active:scale-90 disabled:opacity-30", !canSwitch && "invisible")}
                 >
                   <SwitchCamera className="h-5 w-5" />
@@ -1736,7 +1796,6 @@ function VideoRecorderOverlay({
     </div>
   );
 }
-
 /* -------------------------------------------------------------------------- */
 /*                               MESSAGE BUBBLE                               */
 /* -------------------------------------------------------------------------- */
@@ -1755,7 +1814,9 @@ function StatusTicks({ message, tr }: { message: MessagePayload; tr: Tr }) {
 
 function MessageBubble({
   message,
+  t,
   tr,
+  fmt,
   onReply,
   onReact,
   onPin,
@@ -1765,7 +1826,9 @@ function MessageBubble({
   showAuthor,
 }: {
   message: MessagePayload;
+  t: (key: string, vars?: Record<string, unknown>) => string;
   tr: Tr;
+  fmt: { time: (iso: string) => string };
   onReply: () => void;
   onReact: (emoji: string) => void;
   onPin: () => void;
@@ -1774,8 +1837,21 @@ function MessageBubble({
   canManage: boolean;
   showAuthor: boolean;
 }) {
-  const { t, fmt } = useApp();
   const [showReactions, setShowReactions] = useState(false);
+  const reactionsRef = useRef<HTMLDivElement | null>(null);
+
+  // ИСПРАВЛЕНИЕ: закрываем панель реакций по клику вне
+  useEffect(() => {
+    if (!showReactions) return;
+    const onClick = (e: MouseEvent) => {
+      if (reactionsRef.current && !reactionsRef.current.contains(e.target as Node)) {
+        setShowReactions(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [showReactions]);
+
   if (message.deletedAt) {
     return (
       <p className={cn("max-w-[80%] rounded-2xl border border-dashed border-line px-3 py-2 text-xs italic text-muted", message.isMine && "ml-auto")}>
@@ -1835,7 +1911,10 @@ function MessageBubble({
           </div>
 
           {showReactions && (
-            <div className={cn("absolute -top-10 z-20 flex gap-0.5 rounded-full border border-line bg-surface px-1.5 py-1 shadow-lg", message.isMine ? "right-0" : "left-0")}>
+            <div
+              ref={reactionsRef}
+              className={cn("absolute -top-10 z-20 flex gap-0.5 rounded-full border border-line bg-surface px-1.5 py-1 shadow-lg", message.isMine ? "right-0" : "left-0")}
+            >
               {REACTIONS.map((emoji) => (
                 <button
                   key={emoji}
@@ -2108,6 +2187,7 @@ function AudioPlayer({
           aria-label={tr("chat.voiceShort")}
           onPointerDown={(e) => {
             draggingRef.current = true;
+            // ИСПРАВЛЕНИЕ: используем setPointerCapture, чтобы pointerup сработал даже вне элемента
             try {
               e.currentTarget.setPointerCapture(e.pointerId);
             } catch {
@@ -2116,8 +2196,9 @@ function AudioPlayer({
             seek(e);
           }}
           onPointerMove={(e) => draggingRef.current && seek(e)}
-          onPointerUp={() => {
+          onPointerUp={(e) => {
             draggingRef.current = false;
+            try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
           }}
           onPointerCancel={() => {
             draggingRef.current = false;
@@ -2185,7 +2266,7 @@ function VideoNote({ src, fallbackDuration, tr }: { src: string; fallbackDuratio
   };
 
   return (
-    <div className="relative mt-1 h-[min(16rem,66vw)] w-[min(16rem,66vw)] max-w-full select-none">
+    <div className="relative mt-1 h-64 w-64 max-w-full select-none">
       <div
         className="relative h-full w-full cursor-pointer overflow-hidden rounded-full bg-black shadow-lg"
         onClick={toggle}

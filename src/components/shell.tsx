@@ -548,13 +548,20 @@ export function AppShell({ children }: { children: ReactNode }) {
       )}
 
             {/* На клипах убираем отступы и занимаем весь экран. */}
-      <main className={isClipsPage ? "min-w-0 overflow-hidden" : "min-w-0 overflow-hidden md:pl-60 lg:pl-64"}>
+                     <main
+        className={cn(
+          "min-w-0 overflow-hidden",
+          !isClipsPage && "md:pl-60 lg:pl-64" // 🔥 Отступ для меню на ВСЕХ страницах, кроме клипов
+        )}
+      >
         <div
-          className={
-            isClipsPage
-              ? "w-full"
-              : "mx-auto w-full max-w-6xl px-0 pb-24 pt-4 sm:px-6 md:pb-10" // <--- И ЭТА СТРОКА
-          }
+          className={cn(
+            isChatOpen
+              ? "h-[100dvh] w-full md:h-[calc(100dvh-5rem)]"
+              : isClipsPage
+                ? "w-full"
+                : "mx-auto w-full max-w-6xl px-0 pb-24 pt-4 sm:px-6 md:pb-10"
+          )}
         >
           {children}
         </div>
