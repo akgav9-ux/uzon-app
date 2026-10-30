@@ -1,3 +1,4 @@
+import { mediaSrc } from "@/lib/media";
 import { and, eq, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { passwordResets, profiles, privacySettings, userSettings, verificationCodes } from "@/db/schema";
@@ -37,7 +38,7 @@ function serializeUser(user: SessionUser) {
     email: user.email,
     phone: user.phone,
     avatarKey: user.avatarKey,
-    avatarUrl: user.avatarKey ? `/api/media/${user.avatarKey}` : null,
+    avatarUrl: mediaSrc({ key: user.avatarKey ?? "" }),
     coverKey: user.coverKey,
     bio: user.bio,
     links: user.links,
