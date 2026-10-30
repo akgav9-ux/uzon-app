@@ -1826,7 +1826,7 @@ function MessageBubble({
   showAuthor,
 }: {
   message: MessagePayload;
-    t: (key: any, vars?: Record<string, unknown>) => string;
+    t: (key: any, vars?: any) => string;
   tr: Tr;
   fmt: { time: (iso: string) => string };
   onReply: () => void;
