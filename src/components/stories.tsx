@@ -76,9 +76,6 @@ export function StoryTray({ onOpenCreate }: { onOpenCreate?: () => void }) {
             </button>
           ))}
       </div>
-      {groups.length === 0 && (
-        <p className="rounded-xl border border-dashed border-line px-3 py-2 text-xs text-muted">{t("story.empty")}</p>
-      )}
       {active && (
         <StoryViewer
           groups={active.groups}

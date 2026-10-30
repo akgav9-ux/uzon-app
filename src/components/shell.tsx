@@ -334,8 +334,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         </aside>
       )}
 
-      {/* Верхняя панель. На странице клипов скрыта. */}
-      {!isClipsPage && (
+            {/* Верхняя панель. На странице клипов скрыта. */}
+      {!isClipsPage && !isChatOpen && (  // <--- ДОБАВИЛИ !isChatOpen
         <header className="sticky top-0 z-30 border-b border-line bg-surface/80 backdrop-blur-xl md:pl-60 lg:pl-64">
           <div className="safe-top flex h-14 items-center gap-2 px-3 md:px-6">
             <button
@@ -547,14 +547,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      {/* На клипах убираем отступы и занимаем весь экран. */}
-      {/* 🔥 ИСПРАВЛЕНИЕ: Добавлены min-w-0 и overflow-hidden, чтобы контент не вылезал за пределы */}
+            {/* На клипах убираем отступы и занимаем весь экран. */}
       <main className={isClipsPage ? "min-w-0 overflow-hidden" : "min-w-0 overflow-hidden md:pl-60 lg:pl-64"}>
         <div
           className={
             isClipsPage
               ? "w-full"
-              : "mx-auto w-full max-w-6xl px-3 pb-24 pt-4 md:px-6 md:pb-10"
+              : "mx-auto w-full max-w-6xl px-0 pb-24 pt-4 sm:px-6 md:pb-10" // <--- И ЭТА СТРОКА
           }
         >
           {children}

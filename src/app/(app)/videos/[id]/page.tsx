@@ -69,9 +69,12 @@ export default function VideoPage({ params }: { params: Promise<{ id: string }> 
   const { video, related, playlists, playlistIds } = detail.data;
 
   return (
-    <div className="mx-auto grid w-full max-w-[1600px] gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <main className="min-w-0 space-y-4">
-        <div className="overflow-hidden rounded-2xl bg-black shadow-sm">
+    // На мобилке убираем gap, на пк возвращаем
+    <div className="mx-auto grid w-full max-w-[1600px] gap-0 sm:gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <main className="min-w-0 space-y-0 sm:space-y-4">
+        
+        {/* Видео: на мобилке во всю ширину без скруглений, на пк - карточка */}
+        <div className="overflow-hidden rounded-none bg-black shadow-sm sm:rounded-2xl">
           <VideoPlayer
             video={video}
             viewRegisterMs={config.data?.config.viewRegisterMs ?? 3000}
@@ -81,8 +84,10 @@ export default function VideoPage({ params }: { params: Promise<{ id: string }> 
           />
         </div>
 
-        <VideoMeta video={video} />
-
+        {/* Обертка для контента под видео, чтобы на мобилке были отступы, а на пк их не было */}
+        <div className="px-3 sm:px-0">
+          <VideoMeta video={video} />
+        </div>
         {/* Кнопка открытия комментариев */}
         <Card id="video-comments" className="scroll-mt-4 overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 p-3">

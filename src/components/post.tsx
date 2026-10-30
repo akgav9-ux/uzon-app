@@ -84,7 +84,7 @@ export function PostCard({ post, source = "feed" }: { post: PostPayload; source?
   });
 
   return (
-    <article className="animate-fade-up rounded-2xl border border-line bg-surface">
+    <article className="animate-fade-up rounded-none border-b border-line bg-surface sm:rounded-2xl sm:border">
       <header className="flex items-start gap-3 px-4 pt-3.5">
         <Link href={`/u/${post.author.username}`} className="shrink-0">
           <Avatar name={post.author.displayName} url={post.author.avatarUrl} size={40} />

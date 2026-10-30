@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck, Heart, MessageCircle, Phone, UserPlus, Video } from "lucide-react";
 import { useApp } from "@/components/providers";
 import { Avatar, Button, EmptyState, ErrorState, IconButton } from "@/components/ui";
@@ -23,7 +23,6 @@ type Notification = {
 type NotificationsResponse = {
   notifications?: Notification[];
   unread?: number;
-  nextCursor?: string | null;
   error?: string;
 };
 
@@ -63,25 +62,20 @@ export default function NotificationsPage() {
   const { t, fmt, toast } = useApp();
   const queryClient = useQueryClient();
 
-  const query = useInfiniteQuery({
+  // 🔥 ИСПОЛЬЗУЕМ useQuery вместо useInfiniteQuery (без пагинации)
+  const query = useQuery({
     queryKey: qk.notifications,
-    queryFn: async ({ pageParam }) => {
+    queryFn: async () => {
       try {
-        const raw = await get<NotificationsResponse>(
-          `/api/notifications${pageParam ? `?cursor=${pageParam}` : ""}`
-        );
+        const raw = await get<NotificationsResponse>("/api/notifications");
         return {
           notifications: Array.isArray(raw?.notifications) ? raw.notifications : [],
           unread: typeof raw?.unread === "number" ? raw.unread : 0,
-          nextCursor: raw?.nextCursor ?? null,
         };
       } catch (error) {
-        // Если API вернул ошибку (например, 401), возвращаем пустую страницу, чтобы не падать
-        return { notifications: [], unread: 0, nextCursor: null };
+        return { notifications: [], unread: 0 };
       }
     },
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last?.nextCursor ?? null,
     refetchInterval: 20_000,
   });
 
@@ -89,14 +83,16 @@ export default function NotificationsPage() {
     mutationFn: () => postApi("/api/notifications", { action: "readAll" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: qk.notifications }),
   });
+  
   const markRead = useMutation({
     mutationFn: (ids: string[]) => postApi("/api/notifications", { action: "read", ids }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: qk.notifications }),
     onError: (error: Error) => toast(error.message, "error"),
   });
 
-  const notifications = query.data?.pages.flatMap((page) => page?.notifications ?? []) ?? [];
-  const unread = query.data?.pages[0]?.unread ?? 0;
+  // Безопасное получение данных
+  const notifications = query.data?.notifications ?? [];
+  const unread = query.data?.unread ?? 0;
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-2 pb-24 sm:px-4 lg:px-0 lg:pb-0">
@@ -161,14 +157,6 @@ export default function NotificationsPage() {
           );
         })}
       </ul>
-
-      {query.hasNextPage && (
-        <div className="flex justify-center">
-          <Button variant="secondary" size="sm" loading={query.isFetchingNextPage} onClick={() => query.fetchNextPage()}>
-            {t("common.seeAll")}
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
