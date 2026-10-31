@@ -55,6 +55,80 @@ type IceServer = {
   credential?: string;
 };
 
+/* -------------------------------------------------------------------------- */
+/*                         ГЕНЕРАТОР ЗВУКОВ ЗВОНКА                            */
+/* -------------------------------------------------------------------------- */
+
+type ToneHandle = {
+  stop: () => void;
+  ctx: AudioContext | null;
+};
+
+/**
+ * Генерирует периодический тон (гудки). Работает без mp3.
+ * type: "dial" (исходящий "ту-ту") или "ring" (входящая мелодия).
+ */
+function startTone(type: "dial" | "ring"): ToneHandle {
+  let ctx: AudioContext | null = null;
+  let timer: number | null = null;
+  let stopped = false;
+
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    ctx = new AudioCtx();
+    void ctx.resume().catch(() => {});
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    // Настройки для разных типов
+    const pattern = type === "dial"
+      ? { freq: 425, onMs: 1000, offMs: 1000, volume: 0.08 } // "ту-ту" 1 сек / пауза 1 сек
+      : { freq: 800, onMs: 500, offMs: 500, volume: 0.08 };  // входящий: 0.5 сек / пауза 0.5 сек
+
+    osc.frequency.value = pattern.freq;
+    gain.gain.value = 0;
+    osc.start();
+
+    const loop = () => {
+      if (stopped || !ctx) return;
+      gain.gain.setTargetAtTime(pattern.volume, ctx.currentTime, 0.02);
+      timer = window.setTimeout(() => {
+        if (stopped || !ctx) return;
+        gain.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+        timer = window.setTimeout(loop, pattern.offMs);
+      }, pattern.onMs);
+    };
+    loop();
+
+    // Вибрация для мобильных (только для входящего)
+    if (type === "ring" && typeof navigator !== "undefined" && navigator.vibrate) {
+      const vibrateLoop = () => {
+        if (stopped) return;
+        navigator.vibrate([500, 500, 500, 500]);
+        timer = window.setTimeout(vibrateLoop, 2000);
+      };
+      vibrateLoop();
+    }
+  } catch (err) {
+    console.warn("[UZON CALL] Tone failed to start:", err);
+  }
+
+  return {
+    ctx,
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
+      if (ctx) {
+        try { ctx.close(); } catch { /* ignore */ }
+      }
+    },
+  };
+}
+
 const FINISHED_STATUSES = [
   "ended",
   "declined",
@@ -80,6 +154,7 @@ export function CallScreen({ callId }: { callId: string }) {
   const isCleaningUp = useRef(false);
   const facing = useRef<"user" | "environment">("user");
   const mounted = useRef(false);
+  const toneRef = useRef<ToneHandle | null>(null);
   const offerStarted = useRef(false);
 
   const [status, setStatus] = useState("connecting");
@@ -353,10 +428,15 @@ export function CallScreen({ callId }: { callId: string }) {
     t,
   ]);
 
-  const cleanup = useCallback(() => {
+    const cleanup = useCallback(() => {
     if (isCleaningUp.current) return;
-
     isCleaningUp.current = true;
+
+    // 🔥 Останавливаем звук звонка
+    if (toneRef.current) {
+      toneRef.current.stop();
+      toneRef.current = null;
+    }
 
     const pc = pcRef.current;
     pcRef.current = null;
@@ -382,6 +462,37 @@ export function CallScreen({ callId }: { callId: string }) {
       remoteAudio.current.srcObject = null;
     }
   }, []);
+
+    // 🔥 Управление звуками звонка (гудки и мелодия)
+  useEffect(() => {
+    const stopTone = () => {
+      if (toneRef.current) {
+        toneRef.current.stop();
+        toneRef.current = null;
+      }
+    };
+
+    // Останавливаем при ответе или завершении
+    if (FINISHED_STATUSES.includes(status) || status === "active") {
+      stopTone();
+      return;
+    }
+
+    // Запускаем нужный звук только в статусе ringing
+    if (status === "ringing") {
+      if (!toneRef.current) {
+        const isInitiator = callQuery.data?.call.isInitiator ?? false;
+        toneRef.current = startTone(isInitiator ? "dial" : "ring");
+      }
+    } else {
+      stopTone();
+    }
+
+    return () => {
+      stopTone();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, callQuery.data?.call.isInitiator]);
 
   useEffect(() => {
     mounted.current = true;
