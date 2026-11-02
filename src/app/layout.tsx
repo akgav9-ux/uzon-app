@@ -1,3 +1,4 @@
+
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
@@ -25,10 +26,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#10121B" },
-    { media: "(prefers-color-scheme: light)", color: "#F4F5FA" },
-  ],
+  themeColor: "#075BFF",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -36,7 +34,11 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
   return (
     <html lang="ru" data-theme="dark" suppressHydrationWarning>
       <body className="min-h-dvh bg-canvas text-ink antialiased">
