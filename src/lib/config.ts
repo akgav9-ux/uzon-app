@@ -1,3 +1,4 @@
+
 import { db } from "@/db";
 import { appConfig } from "@/db/schema";
 import { sql } from "drizzle-orm";
@@ -33,73 +34,61 @@ export const DEFAULT_CONFIG: ServerConfig = {
   viewCooldownMinutes: 30,
   storyLifetimeHours: 24,
   iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }],
-  // Demo mode is opt-in. Production can never enable it.
   demoMode: false,
 };
 
 let cache: { value: ServerConfig; at: number } | null = null;
 
-/**
- * Runtime limits live in the database (`app_config`) so an operator can change
- * the maximum clip length without redeploying clients. Falls back to defaults
- * when the table is not reachable yet.
- */
 export async function getServerConfig(): Promise<ServerConfig> {
   if (cache && Date.now() - cache.at < 30_000) return cache.value;
 
   let value: ServerConfig = { ...DEFAULT_CONFIG };
+
   try {
     const rows = await db.select().from(appConfig).limit(50);
+
     for (const row of rows) {
-      if (row.key === "iceServers" && Array.isArray(row.value)) {
-        value = { ...value, iceServers: row.value as ServerConfig["iceServers"] };
-        continue;
-      }
+      // Старые TURN-данные из базы больше не загружаются.
+      if (row.key === "iceServers") continue;
+
       if (row.key in value && typeof row.value === "number") {
         value = { ...value, [row.key]: row.value } as ServerConfig;
       }
+
       if (row.key in value && typeof row.value === "boolean") {
         value = { ...value, [row.key]: row.value } as ServerConfig;
       }
     }
   } catch {
-    /* table missing during first boot — defaults apply */
+    // При недоступности таблицы используются значения по умолчанию.
   }
 
-  const turnUrl = process.env.TURN_URL;
-  if (turnUrl) {
-    value = {
-      ...value,
-      iceServers: [
-        ...value.iceServers,
-        {
-          urls: [turnUrl],
-          username: process.env.TURN_USERNAME,
-          credential: process.env.TURN_CREDENTIAL,
-        },
-      ],
-    };
-  }
+  const demoMode =
+    process.env.NODE_ENV !== "production" &&
+    process.env.UZON_DEMO_MODE === "true";
 
-  // Demo endpoints/codes are available only when explicitly enabled in local
-  // development. NODE_ENV=production always disables demo mode (including Vercel).
-  const demoMode = process.env.NODE_ENV !== "production" && process.env.UZON_DEMO_MODE === "true";
   value = { ...value, demoMode };
-
   cache = { value, at: Date.now() };
+
   return value;
 }
 
-export async function setServerConfig(key: keyof ServerConfig, value: number | boolean): Promise<void> {
+export async function setServerConfig(
+  key: keyof ServerConfig,
+  value: number | boolean,
+): Promise<void> {
   await db
     .insert(appConfig)
     .values({ key, value: value as never })
-    .onConflictDoUpdate({ target: appConfig.key, set: { value: value as never, updatedAt: sql`now()` } });
+    .onConflictDoUpdate({
+      target: appConfig.key,
+      set: { value: value as never, updatedAt: sql`now()` },
+    });
+
   cache = null;
 }
 
-/** Subset exposed to the browser. TURN auth is still passed through here; move
- * to short-lived provider-issued credentials before changing the WebRTC flow. */
+/** Публичная конфигурация. TURN-логины и пароли сюда не попадают. */
 export function publicConfig(config: ServerConfig) {
   return {
     clipMaxSeconds: config.clipMaxSeconds,
@@ -112,11 +101,6 @@ export function publicConfig(config: ServerConfig) {
     postMaxLength: config.postMaxLength,
     viewRegisterMs: config.viewRegisterMs,
     storyLifetimeHours: config.storyLifetimeHours,
-    iceServers: config.iceServers.map((server) => ({
-      urls: server.urls,
-      username: server.username,
-      credential: server.credential,
-    })),
     demoMode: config.demoMode,
   };
 }
@@ -133,4 +117,5 @@ export const VIDEO_CATEGORIES = [
   "sport",
   "culture",
 ] as const;
+
 export type VideoCategory = (typeof VIDEO_CATEGORIES)[number];

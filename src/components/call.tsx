@@ -174,40 +174,39 @@ export function CallScreen({ callId }: { callId: string }) {
     refetchInterval: 3000,
   });
 
-  const configQuery = useQuery({
-    queryKey: qk.config,
-    queryFn: () =>
-      get<{
-        config: {
-          iceServers: IceServer[];
-          demoMode: boolean;
-        };
-      }>("/api/config"),
-  });
-
   const signalQuery = useQuery({
     queryKey: qk.callSignals(callId),
     queryFn: () =>
-      get<{ status: string; signals: Signal[] }>(
-        `/api/calls/${callId}/signals`,
-      ),
-    refetchInterval: 1000,
-    enabled: !isCleaningUp.current,
+      get<{
+        status?: string;
+        signals: Signal[];
+      }>(`/api/calls/${callId}/signals`),
+    enabled: Boolean(callId),
+    refetchInterval: 1200,
   });
 
-  const iceServers: IceServer[] =
-    configQuery.data?.config.iceServers ?? [
-      { urls: ["stun:stun.l.google.com:19302"] },
-    ];
+  const iceConfigQuery = useQuery({
+    queryKey: ["call-ice-config"],
+    queryFn: () =>
+      get<{ iceServers: IceServer[] }>("/api/calls/ice-config"),
+    staleTime: 30 * 60 * 1000,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
+  });
 
   useEffect(() => {
+    const servers = iceConfigQuery.data?.iceServers ?? [];
+
     setIceWarning(
-      !iceServers.some((server) =>
-        server.urls.some((url) => url.toLowerCase().startsWith("turn:") ||
-          url.toLowerCase().startsWith("turns:")),
+      !servers.some((server) =>
+        server.urls.some(
+          (url) =>
+            url.toLowerCase().startsWith("turn:") ||
+            url.toLowerCase().startsWith("turns:"),
+        ),
       ),
     );
-  }, [configQuery.data]);
+  }, [iceConfigQuery.data]);
 
   const sendSignal = useCallback(
     async (type: string, payload: Record<string, unknown> = {}) => {
@@ -347,7 +346,17 @@ export function CallScreen({ callId }: { callId: string }) {
     if (pcRef.current) return pcRef.current;
 
     const kind = callQuery.data?.call.kind ?? "audio";
-    const pc = new RTCPeerConnection({ iceServers });
+
+    const iceConfig = await queryClient.fetchQuery({
+      queryKey: ["call-ice-config"],
+      queryFn: () =>
+        get<{ iceServers: IceServer[] }>("/api/calls/ice-config"),
+      staleTime: 30 * 60 * 1000,
+    });
+
+    const pc = new RTCPeerConnection({
+      iceServers: iceConfig.iceServers,
+    });
 
     pcRef.current = pc;
 
@@ -422,7 +431,7 @@ export function CallScreen({ callId }: { callId: string }) {
     attachRemoteStream,
     callQuery.data?.call.kind,
     getMedia,
-    iceServers,
+    queryClient,
     playRemoteAudio,
     sendSignal,
     t,

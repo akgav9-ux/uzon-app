@@ -34,7 +34,9 @@ export async function GET() {
       integrations: {
         emailDelivery: isEmailConfigured(),
         smsDelivery: isSmsConfigured(),
-        turnServer: Boolean(process.env.TURN_URL),
+        turnServer: Boolean(
+  process.env.METERED_DOMAIN && process.env.METERED_SECRET_KEY,
+),
         pushNotifications: Boolean(process.env.FCM_SERVER_KEY),
         objectStorage: (process.env.STORAGE_DRIVER ?? "local") as string,
         videoTranscoding: false,
