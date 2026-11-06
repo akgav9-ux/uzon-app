@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { blocks, conversationMembers, follows, posts, profiles } from "@/db/schema";
+import { blocks, conversationMembers, follows, posts } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { ok, rateLimit, toResponse } from "@/lib/http";
 import { buildPostsPayload } from "@/lib/serialize";
@@ -23,26 +23,41 @@ export async function GET(req: Request) {
       .select({ followingId: follows.followingId })
       .from(follows)
       .where(eq(follows.followerId, user.id));
-    const followingIds = followingRows.map((r) => r.followingId);
+    const followingIds = followingRows.map((row) => row.followingId);
+
     const subscribed = await db
       .select({ conversationId: conversationMembers.conversationId })
       .from(conversationMembers)
       .where(eq(conversationMembers.userId, user.id));
-    const subscribedIds = subscribed.map((r) => r.conversationId);
+    const subscribedIds = subscribed.map((row) => row.conversationId);
+
     const blockedRows = await db
       .select({ a: blocks.blockerId, b: blocks.blockedId })
       .from(blocks)
       .where(or(eq(blocks.blockerId, user.id), eq(blocks.blockedId, user.id)));
-    const excludedIds = blockedRows.filter((r) => r.a !== user.id).map((r) => r.b);
+
+    // Hide both sides of a block relationship: if I blocked B, hide B;
+    // if B blocked me, hide B as well.
+    const excludedIds = blockedRows.map((row) => (row.a === user.id ? row.b : row.a));
+
     // Private profiles: their posts are only visible to followers (handled by the
     // audience filter below, since a private profile's posts use "followers").
     const conditions = [sql`${posts.deletedAt} is null`];
     if (cursor) conditions.push(lt(posts.createdAt, new Date(cursor)));
-    if (excludedIds.length) conditions.push(sql`${posts.authorId} not in (${sql.join(excludedIds.map((id) => sql`${id}`), sql`, `)})`);
+    if (excludedIds.length) {
+      conditions.push(
+        sql`${posts.authorId} not in (${sql.join(excludedIds.map((id) => sql`${id}`), sql`, `)})`,
+      );
+    }
 
     if (tab === "following") {
       const ids = [user.id, ...followingIds];
-      conditions.push(or(inArray(posts.authorId, ids), subscribedIds.length ? inArray(posts.conversationId, subscribedIds) : sql`false`)!);
+      conditions.push(
+        or(
+          inArray(posts.authorId, ids),
+          subscribedIds.length ? inArray(posts.conversationId, subscribedIds) : sql`false`,
+        )!,
+      );
     } else if (tab === "latest") {
       conditions.push(
         or(
@@ -53,8 +68,7 @@ export async function GET(req: Request) {
         )!,
       );
     } else {
-      // "For you": chronological public posts from followed authors first, then
-      // public posts ranked by recent engagement. No simulated AI ranking.
+      // "For you": public posts plus followed authors, ordered by engagement.
       conditions.push(
         or(
           eq(posts.authorId, user.id),
@@ -80,6 +94,7 @@ export async function GET(req: Request) {
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
     const payload = await buildPostsPayload(page, user.id);
+
     return ok({
       posts: payload,
       nextCursor: hasMore ? page[page.length - 1]!.createdAt.toISOString() : null,

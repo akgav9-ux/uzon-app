@@ -8,20 +8,28 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * Honest capability report. Anything that needs an external service is flagged
- * here instead of pretending to work in the UI.
+ * Public capability report. Demo credentials are returned only in explicitly
+ * enabled local development, never from a production deployment.
  */
 export async function GET() {
   try {
     const config = await getServerConfig();
+    const demoMode = process.env.NODE_ENV !== "production" && config.demoMode;
+
     let demo: { username: string; password: string; role: string; note: string | null }[] = [];
-    if (config.demoMode) {
+    if (demoMode) {
       const rows = await db.select().from(demoAccounts).limit(12).catch(() => []);
-      demo = rows.map((r) => ({ username: r.username, password: r.password, role: r.role, note: r.note }));
+      demo = rows.map((row) => ({
+        username: row.username,
+        password: row.password,
+        role: row.role,
+        note: row.note,
+      }));
     }
+
     return ok({
-      config: publicConfig(config),
-      demoMode: config.demoMode,
+      config: { ...publicConfig(config), demoMode },
+      demoMode,
       demoAccounts: demo,
       integrations: {
         emailDelivery: isEmailConfigured(),

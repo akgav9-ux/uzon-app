@@ -33,7 +33,8 @@ export const DEFAULT_CONFIG: ServerConfig = {
   viewCooldownMinutes: 30,
   storyLifetimeHours: 24,
   iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }],
-  demoMode: true,
+  // Demo mode is opt-in. Production can never enable it.
+  demoMode: false,
 };
 
 let cache: { value: ServerConfig; at: number } | null = null;
@@ -45,6 +46,7 @@ let cache: { value: ServerConfig; at: number } | null = null;
  */
 export async function getServerConfig(): Promise<ServerConfig> {
   if (cache && Date.now() - cache.at < 30_000) return cache.value;
+
   let value: ServerConfig = { ...DEFAULT_CONFIG };
   try {
     const rows = await db.select().from(appConfig).limit(50);
@@ -63,6 +65,7 @@ export async function getServerConfig(): Promise<ServerConfig> {
   } catch {
     /* table missing during first boot — defaults apply */
   }
+
   const turnUrl = process.env.TURN_URL;
   if (turnUrl) {
     value = {
@@ -77,7 +80,12 @@ export async function getServerConfig(): Promise<ServerConfig> {
       ],
     };
   }
-  value = { ...value, demoMode: process.env.UZON_DEMO_MODE !== "false" };
+
+  // Demo endpoints/codes are available only when explicitly enabled in local
+  // development. NODE_ENV=production always disables demo mode (including Vercel).
+  const demoMode = process.env.NODE_ENV !== "production" && process.env.UZON_DEMO_MODE === "true";
+  value = { ...value, demoMode };
+
   cache = { value, at: Date.now() };
   return value;
 }
@@ -90,7 +98,8 @@ export async function setServerConfig(key: keyof ServerConfig, value: number | b
   cache = null;
 }
 
-/** Subset that is safe to expose to the browser (no credentials). */
+/** Subset exposed to the browser. TURN auth is still passed through here; move
+ * to short-lived provider-issued credentials before changing the WebRTC flow. */
 export function publicConfig(config: ServerConfig) {
   return {
     clipMaxSeconds: config.clipMaxSeconds,
@@ -103,7 +112,11 @@ export function publicConfig(config: ServerConfig) {
     postMaxLength: config.postMaxLength,
     viewRegisterMs: config.viewRegisterMs,
     storyLifetimeHours: config.storyLifetimeHours,
-    iceServers: config.iceServers.map((s) => ({ urls: s.urls, username: s.username, credential: s.credential })),
+    iceServers: config.iceServers.map((server) => ({
+      urls: server.urls,
+      username: server.username,
+      credential: server.credential,
+    })),
     demoMode: config.demoMode,
   };
 }

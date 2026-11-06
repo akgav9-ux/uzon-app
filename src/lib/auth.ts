@@ -84,6 +84,15 @@ export async function revokeSession(token: string): Promise<void> {
     .where(and(eq(sessions.tokenHash, hashToken(token)), isNull(sessions.revokedAt)));
 }
 
+export async function revokeAllSessions(userId: string): Promise<number> {
+  const result = await db
+    .update(sessions)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)))
+    .returning({ id: sessions.id });
+  return result.length;
+}
+
 export async function revokeAllOtherSessions(userId: string, token: string): Promise<number> {
   const result = await db
     .update(sessions)
@@ -135,16 +144,19 @@ const DEFAULT_PRIVACY = {
   profileVisibility: "public",
 };
 
+/** Only active accounts can be converted into an authenticated session user. */
 export async function loadUserById(userId: string): Promise<SessionUser | null> {
   const rows = await db
     .select({ profile: profiles, settings: userSettings, privacy: privacySettings })
     .from(profiles)
     .leftJoin(userSettings, eq(userSettings.userId, profiles.id))
     .leftJoin(privacySettings, eq(privacySettings.userId, profiles.id))
-    .where(and(eq(profiles.id, userId), sql`${profiles.status} <> 'deleted'`))
+    .where(and(eq(profiles.id, userId), eq(profiles.status, "active")))
     .limit(1);
+
   const row = rows[0];
   if (!row) return null;
+
   const privacy = (row.privacy ?? { userId, ...DEFAULT_PRIVACY }) as PrivacyRow;
   return toSessionUser(row.profile, row.settings ?? undefined, privacy);
 }
@@ -161,6 +173,7 @@ export function tokenFromRequest(req: Request): string | null {
 export async function getSessionUser(req: Request): Promise<SessionUser | null> {
   const token = tokenFromRequest(req);
   if (!token) return null;
+
   const rows = await db
     .select({ session: sessions })
     .from(sessions)
@@ -172,10 +185,21 @@ export async function getSessionUser(req: Request): Promise<SessionUser | null> 
       ),
     )
     .limit(1);
+
   const session = rows[0]?.session;
   if (!session) return null;
+
   const user = await loadUserById(session.userId);
-  if (!user) return null;
+  if (!user) {
+    // A suspended/deleted account must not regain access through an old cookie
+    // if it is later restored. Revoke the session as soon as it is observed.
+    await db
+      .update(sessions)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(sessions.id, session.id), isNull(sessions.revokedAt)));
+    return null;
+  }
+
   await db
     .update(sessions)
     .set({ lastUsedAt: new Date() })
@@ -186,6 +210,7 @@ export async function getSessionUser(req: Request): Promise<SessionUser | null> 
     .set({ lastSeenAt: new Date() })
     .where(eq(profiles.id, user.id))
     .catch(() => undefined);
+
   return user;
 }
 

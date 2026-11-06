@@ -10,6 +10,7 @@ import {
   hashPassword,
   hashToken,
   newToken,
+  revokeAllSessions,
   revokeSession,
   SESSION_COOKIE,
   tokenFromRequest,
@@ -76,7 +77,6 @@ const postSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("verify"), code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code") }),
   recoverRequestSchema.extend({ action: z.literal("recover") }),
   recoverResetSchema.extend({ action: z.literal("reset") }),
-  // Новые action для входа по коду
   z.object({ action: z.literal("request_code"), email: z.string().email() }),
   z.object({ action: z.literal("login_code"), email: z.string().email(), code: z.string().regex(/^\d{6}$/) }),
 ]);
@@ -91,8 +91,16 @@ async function issueCode(userId: string, channel: "email" | "phone", destination
     expiresAt: new Date(Date.now() + 10 * 60_000),
   });
   const delivery =
-    channel === "email" ? await sendEmail(destination, authCodeEmail(code, locale).subject, authCodeEmail(code, locale).html) : await sendSms(destination, authCodeSms(code));
+    channel === "email"
+      ? await sendEmail(destination, authCodeEmail(code, locale).subject, authCodeEmail(code, locale).html)
+      : await sendSms(destination, authCodeSms(code));
   return { code, delivery };
+}
+
+function assertAccountCanAuthenticate(status: string) {
+  if (status === "suspended") throw new ApiError(403, "suspended", "This account is suspended");
+  if (status === "deleted") throw new ApiError(410, "deleted", "This account has been deleted");
+  if (status !== "active") throw new ApiError(403, "account_unavailable", "This account is not available");
 }
 
 export async function POST(req: Request) {
@@ -140,15 +148,19 @@ export async function POST(req: Request) {
         const token = await createSession(userId, req);
         const loaded = await loadUserById(userId);
         if (!loaded) throw new ApiError(500, "session_error", "Could not load the new account");
+
         return ok(
           {
             user: serializeUser(loaded),
             verification: {
               channel,
-              destination: channel === "email" ? destination.replace(/(^..).*(@)/, "$1***$2") : `${destination.slice(0, 4)}***${destination.slice(-2)}`,
+              destination:
+                channel === "email"
+                  ? destination.replace(/(^..).*(@)/, "$1***$2")
+                  : `${destination.slice(0, 4)}***${destination.slice(-2)}`,
               delivered: delivery.delivered,
               deliveryReason: delivery.reason ?? null,
-              // Only ever exposed when no real provider is configured AND demo mode is on.
+              // devCode is available only in explicitly enabled local demo mode.
               devCode: !delivery.delivered && config.demoMode ? code : null,
             },
           },
@@ -171,17 +183,16 @@ export async function POST(req: Request) {
             ),
           )
           .limit(1);
+
         if (!row || !row.passwordHash || !verifyPassword(body.password, row.passwordHash)) {
           throw new ApiError(401, "invalid_credentials", "Incorrect username/email or password");
         }
-        if (row.status === "suspended") throw new ApiError(403, "suspended", "This account is suspended");
-        if (row.status === "deleted") throw new ApiError(410, "deleted", "This account has been deleted");
+        assertAccountCanAuthenticate(row.status);
+
         const token = await createSession(row.id, req);
         const user = await loadUserById(row.id);
-        return ok(
-          { user: serializeUser(user!) },
-          { headers: { "Set-Cookie": cookieHeader(token, SESSION_SECONDS) } },
-        );
+        if (!user) throw new ApiError(403, "account_unavailable", "This account is not available");
+        return ok({ user: serializeUser(user) }, { headers: { "Set-Cookie": cookieHeader(token, SESSION_SECONDS) } });
       }
 
       case "logout": {
@@ -198,7 +209,11 @@ export async function POST(req: Request) {
         const destination = channel === "email" ? user.email : user.phone;
         if (!destination) throw new ApiError(422, "no_destination", "Add an email or phone number first");
         const { code, delivery } = await issueCode(user.id, channel, destination, user.locale);
-        return ok({ delivered: delivery.delivered, reason: delivery.reason ?? null, devCode: !delivery.delivered && config.demoMode ? code : null });
+        return ok({
+          delivered: delivery.delivered,
+          reason: delivery.reason ?? null,
+          devCode: !delivery.delivered && config.demoMode ? code : null,
+        });
       }
 
       case "verify": {
@@ -231,27 +246,45 @@ export async function POST(req: Request) {
         return ok({ verified: true, channel: record.channel });
       }
 
-      // Новый action: отправка кода для входа по email
       case "request_code": {
         await rateLimit(`request-code:${ip}`, 5, 600);
         const email = body.email.toLowerCase().trim();
         const [row] = await db.select().from(profiles).where(eq(profiles.email, email)).limit(1);
-        if (!row) return ok({ sent: true }); // не раскрываем существование аккаунта
-        const locale = (await db.select({ locale: userSettings.locale }).from(userSettings).where(eq(userSettings.userId, row.id)).limit(1))[0]?.locale ?? "ru";
+        // Avoid disclosing whether an account exists or is suspended.
+        if (!row || row.status !== "active") return ok({ sent: true });
+        const locale =
+          (await db
+            .select({ locale: userSettings.locale })
+            .from(userSettings)
+            .where(eq(userSettings.userId, row.id))
+            .limit(1))[0]?.locale ?? "ru";
         const { code, delivery } = await issueCode(row.id, "email", email, locale);
-        return ok({ sent: true, delivered: delivery.delivered, reason: delivery.reason ?? null, devCode: !delivery.delivered && config.demoMode ? code : null });
+        return ok({
+          sent: true,
+          delivered: delivery.delivered,
+          reason: delivery.reason ?? null,
+          devCode: !delivery.delivered && config.demoMode ? code : null,
+        });
       }
 
-      // Новый action: вход по коду из email
       case "login_code": {
         await rateLimit(`login-code:${ip}`, 10, 600);
         const email = body.email.toLowerCase().trim();
         const [row] = await db.select().from(profiles).where(eq(profiles.email, email)).limit(1);
         if (!row) throw new ApiError(401, "invalid_code", "Incorrect email or code");
+        assertAccountCanAuthenticate(row.status);
+
         const [record] = await db
           .select()
           .from(verificationCodes)
-          .where(and(eq(verificationCodes.userId, row.id), eq(verificationCodes.channel, "email"), sql`${verificationCodes.usedAt} is null`, sql`${verificationCodes.expiresAt} > now()`))
+          .where(
+            and(
+              eq(verificationCodes.userId, row.id),
+              eq(verificationCodes.channel, "email"),
+              sql`${verificationCodes.usedAt} is null`,
+              sql`${verificationCodes.expiresAt} > now()`,
+            ),
+          )
           .orderBy(sql`${verificationCodes.createdAt} desc`)
           .limit(1);
         if (!record) throw new ApiError(410, "code_expired", "The code has expired, request a new one");
@@ -260,11 +293,13 @@ export async function POST(req: Request) {
           await db.update(verificationCodes).set({ attempts: record.attempts + 1 }).where(eq(verificationCodes.id, record.id));
           throw new ApiError(422, "invalid_code", "The code is incorrect");
         }
+
         await db.update(verificationCodes).set({ usedAt: new Date() }).where(eq(verificationCodes.id, record.id));
         await db.update(profiles).set({ emailVerified: true }).where(eq(profiles.id, row.id));
         const token = await createSession(row.id, req);
         const user = await loadUserById(row.id);
-        return ok({ user: serializeUser(user!) }, { headers: { "Set-Cookie": cookieHeader(token, SESSION_SECONDS) } });
+        if (!user) throw new ApiError(403, "account_unavailable", "This account is not available");
+        return ok({ user: serializeUser(user) }, { headers: { "Set-Cookie": cookieHeader(token, SESSION_SECONDS) } });
       }
 
       case "recover": {
@@ -277,6 +312,7 @@ export async function POST(req: Request) {
           .limit(1);
         // Always answer 200 so account existence is not disclosed.
         if (!row) return ok({ sent: true, devLink: null, reason: "unknown_account" });
+
         const token = newToken();
         await db.insert(passwordResets).values({
           userId: row.id,
@@ -285,10 +321,16 @@ export async function POST(req: Request) {
         });
         const origin = req.headers.get("origin") ?? req.headers.get("host") ?? "http://localhost:3000";
         const link = `${origin.replace(/\/$/, "")}/recover?token=${token}`;
-        const locale = (await db.select({ locale: userSettings.locale }).from(userSettings).where(eq(userSettings.userId, row.id)).limit(1))[0]?.locale ?? "ru";
+        const locale =
+          (await db
+            .select({ locale: userSettings.locale })
+            .from(userSettings)
+            .where(eq(userSettings.userId, row.id))
+            .limit(1))[0]?.locale ?? "ru";
         const delivery = row.email
           ? await sendEmail(row.email, resetEmail(link, locale).subject, resetEmail(link, locale).html)
           : await sendSms(row.phone ?? "", link);
+
         return ok({
           sent: true,
           delivered: delivery.delivered,
@@ -302,15 +344,28 @@ export async function POST(req: Request) {
         const [record] = await db
           .select()
           .from(passwordResets)
-          .where(and(eq(passwordResets.tokenHash, hashToken(body.token)), sql`${passwordResets.usedAt} is null`, sql`${passwordResets.expiresAt} > now()`))
+          .where(
+            and(
+              eq(passwordResets.tokenHash, hashToken(body.token)),
+              sql`${passwordResets.usedAt} is null`,
+              sql`${passwordResets.expiresAt} > now()`,
+            ),
+          )
           .limit(1);
         if (!record) throw new ApiError(410, "token_invalid", "The reset link is invalid or expired");
+
         await db.update(passwordResets).set({ usedAt: new Date() }).where(eq(passwordResets.id, record.id));
-        await db.update(profiles).set({ passwordHash: hashPassword(body.password), updatedAt: new Date() }).where(eq(profiles.id, record.userId));
+        await db
+          .update(profiles)
+          .set({ passwordHash: hashPassword(body.password), updatedAt: new Date() })
+          .where(eq(profiles.id, record.userId));
         await db
           .update(verificationCodes)
           .set({ usedAt: new Date() })
           .where(and(eq(verificationCodes.userId, record.userId), sql`${verificationCodes.usedAt} is null`));
+
+        // Password reset invalidates every active device/session for this account.
+        await revokeAllSessions(record.userId);
         return ok({ reset: true });
       }
     }
