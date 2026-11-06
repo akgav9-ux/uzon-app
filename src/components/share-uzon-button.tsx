@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -21,12 +20,30 @@ export function ShareUzonButton() {
     const { url } = getShareData();
 
     try {
-      await navigator.clipboard.writeText(url);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = url;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+
+        const success = document.execCommand("copy");
+        textarea.remove();
+
+        if (!success) throw new Error("Copy failed");
+      }
+
       setCopied(true);
       toast("Ссылка на UZON скопирована", "success");
-      setTimeout(() => setCopied(false), 2000);
+      window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast("Не удалось скопировать ссылку. Попробуй поделиться через другое приложение.", "error");
+      toast(
+        "Не удалось скопировать ссылку. Попробуй другой способ отправки.",
+        "error",
+      );
     }
   };
 
@@ -53,7 +70,6 @@ export function ShareUzonButton() {
 
     if (!navigator.share) {
       await copyLink();
-      toast("Системное меню недоступно в этом браузере. Ссылка скопирована, если браузер разрешил копирование.", "success");
       return;
     }
 
@@ -68,21 +84,25 @@ export function ShareUzonButton() {
 
   const options = [
     {
-      label: "Копировать ссылку",
+      label: copied ? "Ссылка скопирована" : "Копировать ссылку",
       icon: copied ? Check : Copy,
       action: copyLink,
     },
     { label: "Telegram", icon: Share2, action: shareTelegram },
     { label: "WhatsApp", icon: Share2, action: shareWhatsApp },
-    { label: "Поделиться через телефон", icon: Share2, action: shareNative },
+    {
+      label: "Поделиться через телефон",
+      icon: Share2,
+      action: shareNative,
+    },
   ];
 
   return (
-    <div className="relative">
+    <>
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="inline-flex items-center gap-2 rounded-xl border border-line px-3 py-2 text-sm font-medium text-ink transition hover:bg-surface2"
+        onClick={() => setOpen(true)}
+        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-line px-3 py-2 text-sm font-medium text-ink transition hover:bg-surface2 active:scale-[0.98]"
         aria-expanded={open}
       >
         <Share2 className="h-4 w-4" />
@@ -90,46 +110,51 @@ export function ShareUzonButton() {
       </button>
 
       {open && (
-        <>
-          <button
-            type="button"
-            aria-label="Закрыть меню"
-            className="fixed inset-0 z-40 cursor-default"
-            onClick={() => setOpen(false)}
-          />
-
-          <div className="absolute right-0 z-50 mt-2 w-64 rounded-xl border border-line bg-surface p-2 shadow-xl">
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Поделиться UZON"
+            className="w-full max-w-sm rounded-2xl border border-line bg-surface p-3 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="flex items-center justify-between px-2 py-2">
-              <span className="text-sm font-semibold text-ink">
+              <span className="text-base font-semibold text-ink">
                 Поделиться UZON
               </span>
+
               <button
                 type="button"
                 onClick={() => setOpen(false)}
                 aria-label="Закрыть"
-                className="rounded-lg p-1 text-muted hover:bg-surface2"
+                className="flex h-10 w-10 items-center justify-center rounded-xl text-muted hover:bg-surface2"
               >
-                <X className="h-4 w-4" />
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            {options.map(({ label, icon: Icon, action }) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => {
-                  void action();
-                  setOpen(false);
-                }}
-                className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-ink hover:bg-surface2"
-              >
-                <Icon className="h-4 w-4 text-muted" />
-                {label}
-              </button>
-            ))}
+            <div className="flex flex-col gap-1">
+              {options.map(({ label, icon: Icon, action }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    void action();
+                  }}
+                  className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-ink transition hover:bg-surface2 active:bg-surface2"
+                >
+                  <Icon className="h-5 w-5 shrink-0 text-muted" />
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-        </>
+        </div>
       )}
-    </div>
+    </>
   );
 }

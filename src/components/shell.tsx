@@ -467,68 +467,104 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
       )}
 
-      {/* Мобильное меню. На странице клипов не отображается. */}
+            {/* Мобильное меню */}
       {!isClipsPage && mobileMenuOpen && (
-        <div className="fixed inset-0 z-40 flex h-[100dvh] w-full flex-col bg-background">
+        <div className="fixed inset-0 z-[60] h-[100dvh] bg-black/50">
+          {/* Закрытие по нажатию на фон */}
+          <button
+            type="button"
+            aria-label="Закрыть меню"
+            className="absolute inset-0 h-full w-full"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+
+          {/* Панель меню */}
           <div
-            className="absolute left-0 top-0 flex h-full w-72 flex-col overflow-y-auto bg-surface p-4 shadow-xl"
+            className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-surface shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="mb-6 flex items-center justify-between">
+            {/* Логотип всегда сверху */}
+            <div className="flex shrink-0 items-center justify-between border-b border-line px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))]">
               <Link
                 href="/home"
                 className="flex items-center gap-2"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                <UzonMark size={32} />
+                <UzonMark size={34} />
                 <UzonWordmark />
               </Link>
 
               <button
+                type="button"
                 onClick={() => setMobileMenuOpen(false)}
-                className="rounded-full p-2 text-muted hover:bg-surface2"
+                className="flex h-10 w-10 items-center justify-center rounded-full text-muted hover:bg-surface2"
                 aria-label="Закрыть меню"
               >
-                ✕
+                <span className="text-2xl leading-none">×</span>
               </button>
             </div>
 
-            <nav className="flex flex-col gap-1">
-              {all.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={cn(
-                    "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition",
-                    isActive(item.href)
-                      ? "bg-brandsoft text-brand"
-                      : "text-muted hover:bg-surface2 hover:text-ink",
-                  )}
-                >
-                  {item.icon}
-                  <span>{t(item.labelKey)}</span>
+            {/* Прокручиваемая навигация */}
+            <nav
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3"
+              aria-label={t("nav.home")}
+            >
+              <div className="flex flex-col gap-1">
+                {all.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={cn(
+                      "flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition",
+                      isActive(item.href)
+                        ? "bg-brandsoft text-brand"
+                        : "text-muted hover:bg-surface2 hover:text-ink",
+                    )}
+                  >
+                    {item.icon}
+                    <span className="flex-1">{t(item.labelKey)}</span>
 
-                  {Boolean(item.badge) && (
-                    <span className="ml-auto rounded-full bg-danger px-1.5 py-0.5 text-[10px] font-bold text-white">
-                      {item.badge}
-                    </span>
-                  )}
-                </Link>
-              ))}
+                    {Boolean(item.badge) && (
+                      <span className="rounded-full bg-danger px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        {item.badge}
+                      </span>
+                    )}
+                  </Link>
+                ))}
+              </div>
+
+              {user && (
+                <div className="mt-4 border-t border-line pt-4">
+                  <ShareUzonButton />
+                </div>
+              )}
             </nav>
 
-            {user && (
-              <div className="mt-3">
-                <ShareUzonButton />
-              </div>
-            )}
+            {/* Язык и выход всегда внизу */}
+            <div className="shrink-0 border-t border-line bg-surface px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <span className="text-sm font-medium text-muted">
+                  Язык
+                </span>
 
-            <div className="mt-auto pt-4">
+                <select
+                  value={locale}
+                  onChange={(event) => setLocale(event.target.value)}
+                  className="h-10 rounded-xl border border-line bg-surface2 px-3 text-sm text-ink outline-none focus:ring-2 focus:ring-brand/30"
+                  aria-label="Выбрать язык"
+                >
+                  <option value="ru">Русский</option>
+                  <option value="en">English</option>
+                  <option value="uz-Latn">O‘zbekcha</option>
+                </select>
+              </div>
+
               {user ? (
                 <button
+                  type="button"
                   onClick={handleLogout}
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-danger hover:bg-danger/10"
+                  className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-danger transition hover:bg-danger/10"
                 >
                   <LogOut className="h-4 w-4" />
                   Выйти
@@ -537,7 +573,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <Link
                   href="/login"
                   onClick={() => setMobileMenuOpen(false)}
-                  className="flex w-full items-center justify-center gap-3 rounded-xl bg-brand px-3 py-2.5 text-sm font-medium text-white"
+                  className="flex min-h-11 w-full items-center justify-center rounded-xl bg-brand px-3 py-2.5 text-sm font-medium text-white"
                 >
                   Войти
                 </Link>
