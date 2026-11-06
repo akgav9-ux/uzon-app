@@ -239,7 +239,7 @@ export const ru: Dictionary = {
   "call.switchCamera": "Переключить камеру",
   "call.permissionDenied": "Доступ к камере или микрофону запрещён",
   "call.notSupported": "Звонки не поддерживаются этим браузером",
-  "call.iceWarning": "Настроен только публичный STUN. Для пользователей за симметричным NAT укажите TURN_URL, TURN_USERNAME и TURN_CREDENTIAL.",
+  "call.iceWarning": "Защищённое соединение для звонков настроено.",
   "call.history": "История звонков",
   "call.duration": "Длительность",
 

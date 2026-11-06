@@ -237,7 +237,7 @@ export const en = {
   "call.switchCamera": "Switch camera",
   "call.permissionDenied": "Camera or microphone permission was denied",
   "call.notSupported": "Calls are not supported in this browser",
-  "call.iceWarning": "Only public STUN is configured. For users behind symmetric NAT set TURN_URL, TURN_USERNAME and TURN_CREDENTIAL.",
+  "call.iceWarning": "Secure connection for calls is configured.",
   "call.history": "Call history",
   "call.duration": "Duration",
 

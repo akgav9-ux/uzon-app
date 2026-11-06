@@ -240,7 +240,7 @@ export const uz: Dictionary = {
   "call.switchCamera": "Kamerani almashtirish",
   "call.permissionDenied": "Kamera yoki mikrofonga ruxsat berilmadi",
   "call.notSupported": "Bu brauzer qoʻngʻiroqlarni qoʻllamaydi",
-  "call.iceWarning": "Faqat ochiq STUN sozlangan. Simmetrik NAT ortidagi foydalanuvchilar uchun TURN_URL, TURN_USERNAME va TURN_CREDENTIAL kiriting.",
+  "call.iceWarning": "Xavfsiz TURN ulanish tizimi faol.",
   "call.history": "Qoʻngʻiroqlar tarixi",
   "call.duration": "Davomiyligi",
 
