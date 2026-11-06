@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -5,15 +6,63 @@ import { Check, Copy, Share2, X } from "lucide-react";
 import { useApp } from "@/components/providers";
 
 export function ShareUzonButton() {
-  const { toast } = useApp();
+  const { toast, locale } = useApp();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const translations = {
+    ru: {
+      button: "Поделиться UZON",
+      title: "Поделиться UZON",
+      copy: "Копировать ссылку",
+      copied: "Ссылка скопирована",
+      telegram: "Telegram",
+      whatsapp: "WhatsApp",
+      native: "Поделиться через телефон",
+      message: "Присоединяйся к UZON — общайся, смотри видео и публикуй контент!",
+      success: "Ссылка на UZON скопирована",
+      copyError: "Не удалось скопировать ссылку. Попробуй другой способ отправки.",
+      shareError: "Не удалось открыть меню отправки",
+      close: "Закрыть",
+    },
+    en: {
+      button: "Share UZON",
+      title: "Share UZON",
+      copy: "Copy link",
+      copied: "Link copied",
+      telegram: "Telegram",
+      whatsapp: "WhatsApp",
+      native: "Share via phone",
+      message: "Join UZON — chat, watch videos and share your content!",
+      success: "UZON link copied",
+      copyError: "Couldn't copy the link. Try another sharing method.",
+      shareError: "Couldn't open the sharing menu",
+      close: "Close",
+    },
+    "uz-Latn": {
+      button: "UZON'ni ulashish",
+      title: "UZON'ni ulashish",
+      copy: "Havolani nusxalash",
+      copied: "Havola nusxalandi",
+      telegram: "Telegram",
+      whatsapp: "WhatsApp",
+      native: "Telefon orqali ulashish",
+      message: "UZON'ga qo'shiling — suhbatlashing, videolar tomosha qiling va kontent ulashing!",
+      success: "UZON havolasi nusxalandi",
+      copyError: "Havolani nusxalab bo'lmadi. Boshqa usulni sinab ko'ring.",
+      shareError: "Ulashish menyusini ochib bo'lmadi",
+      close: "Yopish",
+    },
+  };
+
+  const language =
+    locale === "en" ? "en" : locale === "uz-Latn" ? "uz-Latn" : "ru";
+
+  const t = translations[language];
+
   const getShareData = () => {
     const url = window.location.origin;
-    const message =
-      "Присоединяйся к UZON — общайся, смотри видео и публикуй контент!";
-    return { url, message };
+    return { url, message: t.message };
   };
 
   const copyLink = async () => {
@@ -37,18 +86,16 @@ export function ShareUzonButton() {
       }
 
       setCopied(true);
-      toast("Ссылка на UZON скопирована", "success");
+      toast(t.success, "success");
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast(
-        "Не удалось скопировать ссылку. Попробуй другой способ отправки.",
-        "error",
-      );
+      toast(t.copyError, "error");
     }
   };
 
   const shareTelegram = () => {
     const { url, message } = getShareData();
+
     window.open(
       `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(message)}`,
       "_blank",
@@ -58,6 +105,7 @@ export function ShareUzonButton() {
 
   const shareWhatsApp = () => {
     const { url, message } = getShareData();
+
     window.open(
       `https://wa.me/?text=${encodeURIComponent(`${message} ${url}`)}`,
       "_blank",
@@ -74,27 +122,27 @@ export function ShareUzonButton() {
     }
 
     try {
-      await navigator.share({ title: "UZON", text: message, url });
+      await navigator.share({
+        title: "UZON",
+        text: message,
+        url,
+      });
     } catch (error) {
       if (error instanceof Error && error.name !== "AbortError") {
-        toast("Не удалось открыть меню отправки", "error");
+        toast(t.shareError, "error");
       }
     }
   };
 
   const options = [
     {
-      label: copied ? "Ссылка скопирована" : "Копировать ссылку",
+      label: copied ? t.copied : t.copy,
       icon: copied ? Check : Copy,
       action: copyLink,
     },
-    { label: "Telegram", icon: Share2, action: shareTelegram },
-    { label: "WhatsApp", icon: Share2, action: shareWhatsApp },
-    {
-      label: "Поделиться через телефон",
-      icon: Share2,
-      action: shareNative,
-    },
+    { label: t.telegram, icon: Share2, action: shareTelegram },
+    { label: t.whatsapp, icon: Share2, action: shareWhatsApp },
+    { label: t.native, icon: Share2, action: shareNative },
   ];
 
   return (
@@ -106,7 +154,7 @@ export function ShareUzonButton() {
         aria-expanded={open}
       >
         <Share2 className="h-4 w-4" />
-        Поделиться UZON
+        {t.button}
       </button>
 
       {open && (
@@ -117,19 +165,19 @@ export function ShareUzonButton() {
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Поделиться UZON"
+            aria-label={t.title}
             className="w-full max-w-sm rounded-2xl border border-line bg-surface p-3 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between px-2 py-2">
               <span className="text-base font-semibold text-ink">
-                Поделиться UZON
+                {t.title}
               </span>
 
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                aria-label="Закрыть"
+                aria-label={t.close}
                 className="flex h-10 w-10 items-center justify-center rounded-xl text-muted hover:bg-surface2"
               >
                 <X className="h-5 w-5" />
