@@ -62,52 +62,91 @@ export default function CreatePage() {
     setFrames([]);
   };
 
-  // Генерация кадров из видео
+  // Generate poster frames only after metadata/data is ready; always settle on decode errors.
   const generateFrames = (file: File) => {
     return new Promise<string[]>((resolve) => {
       const video = document.createElement("video");
-      video.src = URL.createObjectURL(file);
-      video.muted = true;
-      video.playsInline = true;
+      const url = URL.createObjectURL(file);
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       const frames: string[] = [];
-      let time = 0;
-      const duration = video.duration || 10; // fallback
+      let frameIndex = 0;
+      let timeoutId: number | undefined;
 
-      video.onloadedmetadata = () => {
+      const finish = () => {
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        video.onloadeddata = null;
+        video.onseeked = null;
+        video.onerror = null;
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+        URL.revokeObjectURL(url);
+        resolve(frames);
+      };
+
+      timeoutId = window.setTimeout(finish, 15000);
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+
+      const capture = () => {
+        if (ctx && canvas.width > 0 && canvas.height > 0) {
+          try {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            frames.push(canvas.toDataURL("image/jpeg", 0.7));
+          } catch {
+            finish();
+            return;
+          }
+        }
+
+        frameIndex += 1;
+        const duration = Number.isFinite(video.duration) ? video.duration : 0;
+        if (frameIndex >= 4 || duration <= 0) {
+          finish();
+          return;
+        }
+
+        const nextTime = Math.min((duration * frameIndex) / 4, Math.max(0, duration - 0.1));
+        if (nextTime <= video.currentTime) {
+          finish();
+          return;
+        }
+        video.currentTime = nextTime;
+      };
+
+      video.onloadeddata = () => {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
+        capture();
       };
-
-      video.onseeked = () => {
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          frames.push(canvas.toDataURL("image/jpeg", 0.7));
-        }
-        time += duration / 4;
-        if (time < duration && frames.length < 4) {
-          video.currentTime = time;
-        } else {
-          URL.revokeObjectURL(video.src);
-          resolve(frames);
-        }
-      };
-
-      video.currentTime = 0;
+      video.onseeked = capture;
+      video.onerror = finish;
+      video.src = url;
+      video.load();
     });
   };
 
   const probeVideo = (file: File) =>
-    new Promise<void>((resolve) => {
+    new Promise<{ durationMs: number; width: number; height: number } | null>((resolve) => {
       const url = URL.createObjectURL(file);
       const element = document.createElement("video");
       element.preload = "metadata";
       element.onloadedmetadata = () => {
-        setMediaInfo({ durationMs: Math.round(element.duration * 1000), width: element.videoWidth, height: element.videoHeight });
-        resolve();
+        const info = {
+          durationMs: Math.round(element.duration * 1000),
+          width: element.videoWidth,
+          height: element.videoHeight,
+        };
+        setMediaInfo(info);
+        URL.revokeObjectURL(url);
+        resolve(info);
       };
-      element.onerror = () => resolve();
+      element.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
       element.src = url;
     });
 
@@ -120,7 +159,27 @@ export default function CreatePage() {
     setPosterFile(null);
     setPosterPreview(null);
     if (mode !== "photo") {
-      await probeVideo(selected[0]!);
+      const info = await probeVideo(selected[0]!);
+
+      // Landscape videos and clips exceeding the clip duration limit go to the Videos section.
+      if (mode === "clip" && info) {
+        const isLandscape = info.width > info.height;
+        const isTooLong = Boolean(
+          limits?.clipMaxSeconds &&
+          info.durationMs > limits.clipMaxSeconds * 1000
+        );
+
+        if (isLandscape || isTooLong) {
+          setMode("video");
+          toast(
+            isLandscape
+              ? "Это горизонтальное видео. Переключили публикацию в раздел «Видео»."
+              : "Видео длиннее лимита клипов. Переключили публикацию в раздел «Видео».",
+            "success",
+          );
+        }
+      }
+
       const generated = await generateFrames(selected[0]!);
       setFrames(generated);
     }

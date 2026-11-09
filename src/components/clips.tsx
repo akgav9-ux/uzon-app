@@ -553,7 +553,7 @@ function ClipItem({
           ref={videoRef}
           src={clip.url}
           poster={clip.posterUrl ?? undefined}
-          className="absolute inset-0 h-full w-full object-cover"
+          className="absolute inset-0 h-full w-full object-contain"
           loop
           playsInline
           muted={muted}
