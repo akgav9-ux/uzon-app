@@ -95,6 +95,15 @@ export default function RegisterPage() {
 
       setVerification(data.verification);
       await refreshUser();
+
+      // SMS delivery is optional until a phone provider is configured.
+      // If phone registration succeeded but SMS was not delivered, enter the app directly.
+      if (data.verification.channel === "phone" && !data.verification.delivered) {
+        toast(t("auth.welcome"), "success");
+        router.replace("/home");
+        return;
+      }
+
       setStep("verify");
     } catch (err) {
       setError(
