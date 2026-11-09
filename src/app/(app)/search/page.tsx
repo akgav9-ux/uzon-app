@@ -28,6 +28,7 @@ function SearchInner() {
   const queryClient = useQueryClient();
   const [term, setTerm] = useState(params.get("q") ?? "");
   const [type, setType] = useState(params.get("type") ?? "all");
+  const videoSearchMode = type === "videoSearch";
 
   useEffect(() => {
     setTerm(params.get("q") ?? term);
@@ -53,7 +54,9 @@ function SearchInner() {
     if (search.data) void queryClient.invalidateQueries({ queryKey: ["search-history"] });
   }, [search.data, queryClient]);
 
-  const isEmpty = term.trim().length >= 2 && search.data && !search.data.people.length && !search.data.channels.length && !search.data.clips.length && !search.data.videos.length && !search.data.posts.length;
+  const isEmpty = term.trim().length >= 2 && search.data && (videoSearchMode
+    ? !search.data.people.length && !search.data.videos.length
+    : !search.data.people.length && !search.data.channels.length && !search.data.clips.length && !search.data.videos.length && !search.data.posts.length);
 
   return (
     <div className="space-y-4">
@@ -81,7 +84,7 @@ function SearchInner() {
         )}
       </div>
 
-      <Tabs
+      {!videoSearchMode && <Tabs
         value={type}
         onChange={setType}
         items={[
@@ -93,7 +96,7 @@ function SearchInner() {
           { value: "videos", label: t("search.videos") },
           { value: "posts", label: t("search.posts") },
         ]}
-      />
+      />}
 
       {term.trim().length < 2 && (
         <div className="space-y-3">
@@ -132,7 +135,7 @@ function SearchInner() {
 
       {search.data && (
         <div className="space-y-5">
-          {(type === "all" || type === "people") && search.data.people.length > 0 && (
+          {(type === "all" || type === "people" || videoSearchMode) && search.data.people.length > 0 && (
             <section>
               <h2 className="mb-2 text-sm font-semibold text-ink">{t("search.people")}</h2>
               <ul className="grid gap-2 sm:grid-cols-2">
@@ -207,7 +210,7 @@ function SearchInner() {
             </section>
           )}
 
-          {(type === "all" || type === "videos") && search.data.videos.length > 0 && (
+          {(type === "all" || type === "videos" || videoSearchMode) && search.data.videos.length > 0 && (
             <section>
               <h2 className="mb-2 text-sm font-semibold text-ink">{t("search.videos")}</h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
