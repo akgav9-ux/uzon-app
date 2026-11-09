@@ -99,15 +99,24 @@ export default function CreatePage() {
   };
 
   const probeVideo = (file: File) =>
-    new Promise<void>((resolve) => {
+    new Promise<{ durationMs: number; width: number; height: number } | null>((resolve) => {
       const url = URL.createObjectURL(file);
       const element = document.createElement("video");
       element.preload = "metadata";
       element.onloadedmetadata = () => {
-        setMediaInfo({ durationMs: Math.round(element.duration * 1000), width: element.videoWidth, height: element.videoHeight });
-        resolve();
+        const info = {
+          durationMs: Math.round(element.duration * 1000),
+          width: element.videoWidth,
+          height: element.videoHeight,
+        };
+        setMediaInfo(info);
+        URL.revokeObjectURL(url);
+        resolve(info);
       };
-      element.onerror = () => resolve();
+      element.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
       element.src = url;
     });
 
@@ -120,7 +129,27 @@ export default function CreatePage() {
     setPosterFile(null);
     setPosterPreview(null);
     if (mode !== "photo") {
-      await probeVideo(selected[0]!);
+      const info = await probeVideo(selected[0]!);
+
+      // Landscape videos and clips exceeding the clip duration limit go to the Videos section.
+      if (mode === "clip" && info) {
+        const isLandscape = info.width > info.height;
+        const isTooLong = Boolean(
+          limits?.clipMaxSeconds &&
+          info.durationMs > limits.clipMaxSeconds * 1000
+        );
+
+        if (isLandscape || isTooLong) {
+          setMode("video");
+          toast(
+            isLandscape
+              ? "Это горизонтальное видео. Переключили публикацию в раздел «Видео»."
+              : "Видео длиннее лимита клипов. Переключили публикацию в раздел «Видео».",
+            "success",
+          );
+        }
+      }
+
       const generated = await generateFrames(selected[0]!);
       setFrames(generated);
     }
