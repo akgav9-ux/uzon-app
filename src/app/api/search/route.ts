@@ -9,7 +9,7 @@ import { mediaSrc } from "@/lib/media";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const TYPES = ["all", "people", "channels", "groups", "clips", "videos", "posts"] as const;
+const TYPES = ["all", "people", "channels", "groups", "clips", "videos", "posts", "videoSearch"] as const;
 
 /**
  * Unified search. Private profiles, private channels/groups and non-public
@@ -57,11 +57,11 @@ export async function GET(req: Request) {
     const isHandle = q.startsWith("@");
     const handle = q.replace(/^@/, "").toLowerCase();
 
-    const wantPeople = type === "all" || type === "people";
+    const wantPeople = type === "all" || type === "people" || type === "videoSearch";
     const wantChannels = type === "all" || type === "channels";
     const wantGroups = type === "all" || type === "groups";
     const wantClips = type === "all" || type === "clips";
-    const wantVideos = type === "all" || type === "videos";
+    const wantVideos = type === "all" || type === "videos" || type === "videoSearch";
     const wantPosts = type === "all" || type === "posts";
 
     const [people, channels, groups, clips, longVideos, publicPosts] = await Promise.all([
