@@ -62,39 +62,69 @@ export default function CreatePage() {
     setFrames([]);
   };
 
-  // Генерация кадров из видео
+  // Generate poster frames only after metadata/data is ready; always settle on decode errors.
   const generateFrames = (file: File) => {
     return new Promise<string[]>((resolve) => {
       const video = document.createElement("video");
-      video.src = URL.createObjectURL(file);
-      video.muted = true;
-      video.playsInline = true;
+      const url = URL.createObjectURL(file);
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       const frames: string[] = [];
-      let time = 0;
-      const duration = video.duration || 10; // fallback
+      let frameIndex = 0;
+      let timeoutId: number | undefined;
 
-      video.onloadedmetadata = () => {
+      const finish = () => {
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        video.onloadeddata = null;
+        video.onseeked = null;
+        video.onerror = null;
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+        URL.revokeObjectURL(url);
+        resolve(frames);
+      };
+
+      timeoutId = window.setTimeout(finish, 15000);
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+
+      const capture = () => {
+        if (ctx && canvas.width > 0 && canvas.height > 0) {
+          try {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            frames.push(canvas.toDataURL("image/jpeg", 0.7));
+          } catch {
+            finish();
+            return;
+          }
+        }
+
+        frameIndex += 1;
+        const duration = Number.isFinite(video.duration) ? video.duration : 0;
+        if (frameIndex >= 4 || duration <= 0) {
+          finish();
+          return;
+        }
+
+        const nextTime = Math.min((duration * frameIndex) / 4, Math.max(0, duration - 0.1));
+        if (nextTime <= video.currentTime) {
+          finish();
+          return;
+        }
+        video.currentTime = nextTime;
+      };
+
+      video.onloadeddata = () => {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
+        capture();
       };
-
-      video.onseeked = () => {
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          frames.push(canvas.toDataURL("image/jpeg", 0.7));
-        }
-        time += duration / 4;
-        if (time < duration && frames.length < 4) {
-          video.currentTime = time;
-        } else {
-          URL.revokeObjectURL(video.src);
-          resolve(frames);
-        }
-      };
-
-      video.currentTime = 0;
+      video.onseeked = capture;
+      video.onerror = finish;
+      video.src = url;
+      video.load();
     });
   };
 
