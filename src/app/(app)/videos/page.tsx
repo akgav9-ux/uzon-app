@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { PlaySquare, Clock, ListVideo } from "lucide-react";
+import { PlaySquare, Clock, ListVideo, Search as SearchIcon } from "lucide-react";
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useApp } from "@/components/providers";
@@ -74,7 +74,7 @@ function VideosInner() {
               </button>
             ))}
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             {(["recent", "popular", "views"] as const).map((item) => (
               <button
                 key={item}
@@ -84,6 +84,14 @@ function VideosInner() {
                 {item === "recent" ? t("feed.latest") : item === "popular" ? t("feed.forYou") : t("studio.views")}
               </button>
             ))}
+            <Link
+              href="/search?type=videoSearch"
+              aria-label={t("search.placeholder")}
+              title={t("search.placeholder")}
+              className="ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line text-muted transition-colors hover:border-brand hover:text-brand"
+            >
+              <SearchIcon className="h-4 w-4" />
+            </Link>
           </div>
 
           {query.isLoading && (
