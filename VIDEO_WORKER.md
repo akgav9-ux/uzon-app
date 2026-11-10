@@ -60,7 +60,7 @@ The video page uses HLS.js in browsers without native HLS and falls back to the 
 ## Current limitations
 
 - This is a first worker implementation, not yet production-validated against the live Selectel bucket, Supabase connection, real source videos, or mobile browsers.
-- Failed jobs are marked failed for visibility; automatic retry/backoff and stale-job recovery are not included yet.
+- Jobs are retried up to three attempts. A worker heartbeat refreshes active jobs; stale jobs older than 15 minutes are requeued or marked failed after the retry limit. There is no exponential backoff yet.
 - The worker does not yet generate thumbnails, subtitles, or 1440p/4K renditions.
 - Original uploads are kept, so HLS renditions require additional storage.
 
