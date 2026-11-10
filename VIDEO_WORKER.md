@@ -47,7 +47,7 @@ Run it under systemd or another process supervisor so it restarts after a server
 
 ## Selectel bucket settings
 
-The browser must be able to GET the HLS master playlist, variant playlists and segments from the same public media origin used by existing UZON media URLs. Configure bucket/object read access and CORS to allow GET and HEAD from the UZON web origins. Do not make the bucket writable by anonymous users. The worker uploads objects using its private S3 credentials and does not set public ACLs.
+The browser must be able to GET the HLS master playlist, variant playlists and segments from the same public media origin used by existing UZON media URLs. Configure bucket/object read access and CORS to allow GET and HEAD from the UZON web origins. Do not make the bucket writable by anonymous users. The worker uploads objects using its private S3 credentials and sets `public-read` on generated HLS objects, matching the existing media upload behavior. Keep write access private; only generated media objects should be publicly readable.
 
 ## Database rollout
 
