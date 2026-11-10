@@ -447,6 +447,8 @@ export const videos = pgTable(
     commentsEnabled: boolean("comments_enabled").notNull().default(true),
     status: text("status").notNull().default("processing"), // processing | ready | failed
     processingNote: text("processing_note"),
+    hlsKey: text("hls_key"),
+    qualityLevels: jsonb("quality_levels").$type<number[]>().notNull().default([]),
     viewCount: integer("view_count").notNull().default(0),
     likeCount: integer("like_count").notNull().default(0),
     commentCount: integer("comment_count").notNull().default(0),
