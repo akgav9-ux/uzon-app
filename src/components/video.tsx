@@ -330,7 +330,13 @@ export function VideoPlayer({
       return;
     }
 
-    if (element.canPlayType("application/vnd.apple.mpegurl")) {
+    // Safari on Apple platforms can play HLS natively. Do not use
+    // canPlayType() alone here: Chromium may also return "maybe", which
+    // would incorrectly bypass hls.js and hide the quality selector.
+    const isAppleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const isSafari = /^((?!chrome|crios|android).)*safari/i.test(navigator.userAgent);
+    if ((isAppleMobile || isSafari) && element.canPlayType("application/vnd.apple.mpegurl")) {
       element.src = video.hlsUrl;
       return () => { element.removeAttribute("src"); element.load(); };
     }
@@ -343,8 +349,10 @@ export function VideoPlayer({
       }
       instance = new Hls();
       hlsRef.current = instance;
-      instance.attachMedia(element);
-      instance.loadSource(video.hlsUrl!);
+      const activeInstance = instance;
+
+      // Subscribe before attaching/loading: a fast manifest can emit its
+      // level events immediately after the source is attached.
       instance.on(Hls.Events.LEVELS_UPDATED, () => {
         if (!instance || cancelled) return;
         const levels = Array.from(new Set(instance.levels.map((level) => level.height).filter(Boolean))).sort((a, b) => a - b);
@@ -355,7 +363,6 @@ export function VideoPlayer({
           instance.currentLevel = selected >= 0 ? selected : -1;
         }
       });
-      const activeInstance = instance;
       instance.on(Hls.Events.ERROR, (_event, data) => {
         if (!data?.fatal || cancelled) return;
         activeInstance.destroy();
@@ -364,6 +371,9 @@ export function VideoPlayer({
         setAvailableQualities([]);
         setOriginalSource();
       });
+
+      instance.attachMedia(element);
+      instance.loadSource(video.hlsUrl!);
     });
 
     return () => {
