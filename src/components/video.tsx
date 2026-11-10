@@ -257,6 +257,8 @@ export function VideoPlayer({
   const ref = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<HlsPlayerInstance | null>(null);
   const [quality, setQuality] = useState("auto");
+  const qualityRef = useRef(quality);
+  qualityRef.current = quality;
   const [availableQualities, setAvailableQualities] = useState<number[]>(video.qualityLevels ?? []);
   const [hlsReady, setHlsReady] = useState(false);
 
