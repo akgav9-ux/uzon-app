@@ -18,6 +18,11 @@ import {
   Share2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+type HlsLevel = { height: number };
+type HlsInstance = { levels: HlsLevel[]; currentLevel: number; loadSource: (url: string) => void; attachMedia: (media: HTMLMediaElement) => void; on: (event: string, callback: () => void) => void; destroy: () => void };
+type HlsConstructor = { new (config?: Record<string, unknown>): HlsInstance; isSupported: () => boolean; Events: { MANIFEST_PARSED: string; ERROR: string } };
+declare global { interface Window { Hls?: HlsConstructor } }
 import { useApp } from "@/components/providers";
 import {
   Avatar,
@@ -221,6 +226,9 @@ export function VideoPlayer({
   const { t, fmt, toast, user } = useApp();
   const queryClient = useQueryClient();
   const ref = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<HlsInstance | null>(null);
+  const [qualityLevels, setQualityLevels] = useState<HlsLevel[]>([]);
+  const [selectedQuality, setSelectedQuality] = useState("auto");
 
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -259,6 +267,47 @@ export function VideoPlayer({
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    hlsRef.current?.destroy();
+    hlsRef.current = null;
+    setQualityLevels([]);
+    setSelectedQuality("auto");
+    if (!video.streamUrl) {
+      element.src = video.url ?? "";
+      return;
+    }
+    const attachHls = () => {
+      if (!window.Hls?.isSupported()) { element.src = video.url ?? ""; return; }
+      const hls = new window.Hls({ enableWorker: true, capLevelToPlayerSize: true });
+      hlsRef.current = hls;
+      hls.on(window.Hls.Events.MANIFEST_PARSED, () => setQualityLevels(hls.levels));
+      hls.on(window.Hls.Events.ERROR, () => { if (!element.currentSrc) element.src = video.url ?? ""; });
+      hls.loadSource(video.streamUrl!);
+      hls.attachMedia(element);
+    };
+    if (element.canPlayType("application/vnd.apple.mpegurl")) element.src = video.streamUrl;
+    else if (window.Hls) attachHls();
+    else {
+      const existing = document.querySelector<HTMLScriptElement>('script[data-uzon-hls="true"]');
+      const script = existing ?? document.createElement("script");
+      script.addEventListener("load", attachHls, { once: true });
+      script.addEventListener("error", () => { element.src = video.url ?? ""; }, { once: true });
+      if (!existing) {
+        script.src = "https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js";
+        script.async = true;
+        script.dataset.uzonHls = "true";
+        document.head.appendChild(script);
+      }
+    }
+    return () => { hlsRef.current?.destroy(); hlsRef.current = null; };
+  }, [video.id, video.streamUrl, video.url]);
+
+  useEffect(() => {
+    if (hlsRef.current) hlsRef.current.currentLevel = selectedQuality === "auto" ? -1 : Number(selectedQuality);
+  }, [selectedQuality, qualityLevels]);
+
     const resume = video.positionMs / 1000;
     if (resume > 5 && (!video.durationMs || resume < video.durationMs / 1000 - 10)) {
       element.currentTime = resume;
@@ -367,7 +416,7 @@ export function VideoPlayer({
         {video.url ? (
           <video
             ref={ref}
-            src={video.url}
+            src={video.streamUrl ? undefined : video.url ?? undefined}
             poster={video.posterUrl ?? undefined}
             className="h-full w-full bg-black object-contain"
             playsInline
@@ -433,6 +482,17 @@ export function VideoPlayer({
             <span className="ml-1 text-[11px] tabular-nums text-white/80">
               {fmt.duration(current * 1000)} / {fmt.duration(duration * 1000)}
             </span>
+            {video.streamUrl && qualityLevels.length > 0 && (
+              <label className="ml-2 flex items-center gap-1 text-[11px] text-white/80">
+                <span>Качество</span>
+                <select aria-label="Video quality" value={selectedQuality}
+                  onChange={(event) => setSelectedQuality(event.target.value)}
+                  className="max-w-[100px] rounded-md border border-white/20 bg-black/70 px-1.5 py-1 text-white">
+                  <option value="auto">Авто</option>
+                  {qualityLevels.map((level, index) => <option key={index} value={String(index)}>{level.height}p</option>)}
+                </select>
+              </label>
+            )}
 
             <div className="ml-auto flex items-center gap-1">
               <Button size="sm" variant={likeState.liked ? "primary" : "ghost"} className={cn("text-white hover:bg-white/20", likeState.liked && "bg-brand text-white")} icon={<Heart className={cn("h-4 w-4", likeState.liked && "fill-white")} />} onClick={() => likeMutation.mutate(undefined, { onSuccess: (data) => setLikeState({ liked: data.liked, count: data.likeCount }) })}>

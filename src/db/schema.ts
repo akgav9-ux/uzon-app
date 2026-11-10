@@ -472,6 +472,7 @@ export const videoJobs = pgTable(
     status: text("status").notNull().default("queued"),
     progress: integer("progress").notNull().default(0),
     error: text("error"),
+    outputKey: text("output_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
