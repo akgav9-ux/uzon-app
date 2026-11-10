@@ -304,6 +304,7 @@ export function VideoPlayer({
       if (!cancelled && video.url) element.src = video.url;
     };
 
+    setQuality("auto");
     if (!video.hlsUrl) {
       useOriginal();
       setHlsReady(false);
@@ -331,8 +332,8 @@ export function VideoPlayer({
         const levels = Array.from(new Set(instance.levels.map((level) => level.height).filter(Boolean))).sort((a, b) => a - b);
         setAvailableQualities(levels);
         setHlsReady(levels.length > 0);
-        if (quality !== "auto") {
-          const selected = instance.levels.findIndex((level) => String(level.height) === quality);
+        if (qualityRef.current !== "auto") {
+          const selected = instance.levels.findIndex((level) => String(level.height) === qualityRef.current);
           instance.currentLevel = selected >= 0 ? selected : -1;
         }
       });
