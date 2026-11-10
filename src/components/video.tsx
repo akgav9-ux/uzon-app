@@ -258,8 +258,7 @@ export function VideoPlayer({
   const hlsRef = useRef<HlsPlayerInstance | null>(null);
   const [quality, setQuality] = useState("auto");
   const qualityRef = useRef(quality);
-  qualityRef.current = quality;
-  const [availableQualities, setAvailableQualities] = useState<number[]>(video.qualityLevels ?? []);
+    const [availableQualities, setAvailableQualities] = useState<number[]>(video.qualityLevels ?? []);
   const [hlsReady, setHlsReady] = useState(false);
 
   const [playing, setPlaying] = useState(false);
@@ -274,7 +273,7 @@ export function VideoPlayer({
 
   const watchedMs = useRef(0);
   const viewSent = useRef(false);
-  const lastTick = useRef(Date.now());
+  const lastTick = useRef(0);
   const controlsTimeout = useRef<number | null>(null);
 
   const shareVideo = async () => {
@@ -302,20 +301,18 @@ export function VideoPlayer({
     let cancelled = false;
     let instance: HlsPlayerInstance | null = null;
 
-    const useOriginal = () => {
+    const setOriginalSource = () => {
       if (!cancelled && video.url) element.src = video.url;
     };
 
     setQuality("auto");
     if (!video.hlsUrl) {
-      useOriginal();
-      setHlsReady(false);
+      setOriginalSource();
       return;
     }
 
     if (element.canPlayType("application/vnd.apple.mpegurl")) {
       element.src = video.hlsUrl;
-      setHlsReady(false);
       return () => { element.removeAttribute("src"); element.load(); };
     }
 
@@ -347,7 +344,6 @@ export function VideoPlayer({
       if (hlsRef.current === instance) hlsRef.current = null;
       element.removeAttribute("src");
       element.load();
-      setHlsReady(false);
     };
   }, [video.id, video.hlsUrl, video.url]);
 
