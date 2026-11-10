@@ -110,11 +110,12 @@ async function transcode(job) {
     await pipeline(object.Body, createWriteStream(source));
 
     const probe = JSON.parse(await run("ffprobe", [
-      "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=height",
+      "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
       "-of", "json", source,
     ]));
     const sourceHeight = Number(probe.streams?.[0]?.height || 0);
-    if (!sourceHeight) throw new Error("Could not detect source video dimensions");
+    const sourceWidth = Number(probe.streams?.[0]?.width || 0);
+    if (!sourceHeight || !sourceWidth) throw new Error("Could not detect source video dimensions");
 
     const heights = [360, 480, 720, 1080].filter((height) => height <= sourceHeight);
     if (!heights.length) heights.push(sourceHeight);
@@ -134,14 +135,15 @@ async function transcode(job) {
         "-hls_segment_filename", path.join(folder, "segment_%05d.ts"),
         path.join(folder, "index.m3u8"),
       ]);
-      variants.push({ height, bandwidth: Number.parseInt(bitrate[0], 10) * 1000 + 128000, name });
+      const width = Math.max(2, Math.round((sourceWidth * height / sourceHeight) / 2) * 2);
+      variants.push({ height, width, bandwidth: Number.parseInt(bitrate[0], 10) * 1000 + 128000, name });
     }
 
     const master = [
       "#EXTM3U",
       "#EXT-X-VERSION:3",
       ...variants.flatMap((variant) => [
-        `#EXT-X-STREAM-INF:BANDWIDTH=${variant.bandwidth},RESOLUTION=0x${variant.height},NAME="${variant.name}"`,
+        `#EXT-X-STREAM-INF:BANDWIDTH=${variant.bandwidth},RESOLUTION=${variant.width}x${variant.height},NAME="${variant.name}"`,
         `${variant.name}/index.m3u8`,
       ]),
       "",
