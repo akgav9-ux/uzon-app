@@ -208,33 +208,49 @@ type HlsPlayerInstance = {
   currentLevel: number;
   loadSource: (url: string) => void;
   attachMedia: (media: HTMLMediaElement) => void;
-  on: (event: string, callback: () => void) => void;
+  on: (event: string, callback: (event?: string, data?: { fatal?: boolean }) => void) => void;
   destroy: () => void;
 };
 
 type HlsPlayerConstructor = {
   new (): HlsPlayerInstance;
   isSupported: () => boolean;
-  Events: { LEVELS_UPDATED: string };
+  Events: { LEVELS_UPDATED: string; ERROR: string };
 };
+
+let hlsPlayerPromise: Promise<HlsPlayerConstructor | null> | null = null;
 
 function loadHlsPlayer(): Promise<HlsPlayerConstructor | null> {
   const getHls = () => (window as Window & { Hls?: HlsPlayerConstructor }).Hls ?? null;
   const existing = getHls();
   if (existing) return Promise.resolve(existing);
-  return new Promise((resolve) => {
+  if (hlsPlayerPromise) return hlsPlayerPromise;
+
+  hlsPlayerPromise = new Promise((resolve) => {
     let script = document.querySelector<HTMLScriptElement>("script[data-uzon-hls]");
+    if (script?.dataset.uzonHlsLoaded === "true" || script?.dataset.uzonHlsFailed === "true") {
+      resolve(getHls());
+      return;
+    }
     if (!script) {
       script = document.createElement("script");
       script.src = "https://cdn.jsdelivr.net/npm/hls.js@1.6.15/dist/hls.min.js";
       script.async = true;
       script.dataset.uzonHls = "true";
-      document.head.appendChild(script);
     }
-    script.addEventListener("load", () => resolve(getHls()), { once: true });
-    script.addEventListener("error", () => resolve(null), { once: true });
+    script.addEventListener("load", () => {
+      script!.dataset.uzonHlsLoaded = "true";
+      resolve(getHls());
+    }, { once: true });
+    script.addEventListener("error", () => {
+      script!.dataset.uzonHlsFailed = "true";
+      resolve(null);
+    }, { once: true });
     if (getHls()) resolve(getHls());
+    else if (!script.isConnected) document.head.appendChild(script);
   });
+
+  return hlsPlayerPromise;
 }
 
 export function VideoPlayer({
@@ -307,6 +323,8 @@ export function VideoPlayer({
     };
 
     setQuality("auto");
+    setHlsReady(false);
+    setAvailableQualities([]);
     if (!video.hlsUrl) {
       setOriginalSource();
       return;
@@ -336,6 +354,15 @@ export function VideoPlayer({
           const selected = instance.levels.findIndex((level) => String(level.height) === qualityRef.current);
           instance.currentLevel = selected >= 0 ? selected : -1;
         }
+      });
+      const activeInstance = instance;
+      instance.on(Hls.Events.ERROR, (_event, data) => {
+        if (!data?.fatal || cancelled) return;
+        activeInstance.destroy();
+        if (hlsRef.current === activeInstance) hlsRef.current = null;
+        setHlsReady(false);
+        setAvailableQualities([]);
+        setOriginalSource();
       });
     });
 
