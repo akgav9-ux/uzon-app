@@ -97,7 +97,6 @@ async function uploadTree(localDir, prefix) {
   }
 }
 
-import { createReadStream } from "node:fs";
 
 async function transcode(job) {
   const temp = await mkdtemp(path.join(os.tmpdir(), "uzon-hls-"));
