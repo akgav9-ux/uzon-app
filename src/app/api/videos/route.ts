@@ -113,14 +113,14 @@ export async function POST(req: Request) {
         durationMs: durationMs || null,
         audience: body.audience ?? "public",
         commentsEnabled: body.commentsEnabled ?? true,
-        status: kind === "long" && !asset.remoteUrl && !/^https?:\\/\\//i.test(asset.key) ? "processing" : "ready",
-        processingNote: kind === "long" && !asset.remoteUrl && !/^https?:\\/\\//i.test(asset.key)
+        status: kind === "long" && !asset.remoteUrl && !/^https?:\/\//i.test(asset.key) ? "processing" : "ready",
+        processingNote: kind === "long" && !asset.remoteUrl && !/^https?:\/\//i.test(asset.key)
           ? "Preparing adaptive video qualities"
-          : asset.remoteUrl || /^https?:\\/\\//i.test(asset.key) ? "External demo asset" : null,
+          : asset.remoteUrl || /^https?:\/\//i.test(asset.key) ? "External demo asset" : null,
       })
       .returning();
 
-    if (kind === "long" && !asset.remoteUrl && !/^https?:\\/\\//i.test(asset.key)) {
+    if (kind === "long" && !asset.remoteUrl && !/^https?:\/\//i.test(asset.key)) {
       await db.insert(videoJobs).values({ videoId: row!.id, stage: "queued", status: "queued", progress: 0 });
     } else {
       await db.insert(videoJobs).values({ videoId: row!.id, stage: "done", status: "ready", progress: 100 });
