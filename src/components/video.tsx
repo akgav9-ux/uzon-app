@@ -258,6 +258,7 @@ export function VideoPlayer({
   const hlsRef = useRef<HlsPlayerInstance | null>(null);
   const [quality, setQuality] = useState("auto");
   const qualityRef = useRef(quality);
+  useEffect(() => { qualityRef.current = quality; }, [quality]);
     const [availableQualities, setAvailableQualities] = useState<number[]>(video.qualityLevels ?? []);
   const [hlsReady, setHlsReady] = useState(false);
 
@@ -319,7 +320,7 @@ export function VideoPlayer({
     void loadHlsPlayer().then((Hls) => {
       if (cancelled) return;
       if (!Hls || !Hls.isSupported()) {
-        useOriginal();
+        setOriginalSource();
         return;
       }
       instance = new Hls();
