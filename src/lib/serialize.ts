@@ -16,6 +16,7 @@ import {
   storyViews,
   videos,
   videoProgress,
+  videoJobs,
   follows,
 } from "@/db/schema";
 import { mediaSrc } from "@/lib/media";
@@ -74,6 +75,7 @@ export type VideoPayload = {
   category: string;
   kind: string;
   url: string | null;
+  streamUrl: string | null;
   posterUrl: string | null;
   hashtags: string[];
   durationMs: number | null;
@@ -98,7 +100,7 @@ export async function buildVideosPayload(rows: (typeof videos.$inferSelect)[], v
   const mediaIds = rows.map((r) => r.mediaId).filter(Boolean);
   const posterKeys = rows.map((r) => r.posterKey).filter((k): k is string => Boolean(k));
 
-  const [mediaRows, ownerMap, likedRows, savedRows, progressRows, posterRows] = await Promise.all([
+  const [mediaRows, ownerMap, likedRows, savedRows, progressRows, posterRows, jobRows] = await Promise.all([
     mediaIds.length ? db.select().from(media).where(inArray(media.id, mediaIds)) : Promise.resolve([]),
     authorsByIds(rows.map((r) => r.ownerId)),
     viewerId
@@ -122,6 +124,7 @@ export async function buildVideosPayload(rows: (typeof videos.$inferSelect)[], v
     posterKeys.length
       ? db.select({ key: media.key, remoteUrl: media.remoteUrl }).from(media).where(inArray(media.key, posterKeys))
       : Promise.resolve([]),
+    db.select({ videoId: videoJobs.videoId, outputKey: videoJobs.outputKey }).from(videoJobs).where(inArray(videoJobs.videoId, videoIds)).orderBy(desc(videoJobs.updatedAt)),
   ]);
 
   const mediaMap = new Map(mediaRows.map((m) => [m.id, m]));
@@ -129,6 +132,10 @@ export async function buildVideosPayload(rows: (typeof videos.$inferSelect)[], v
   const saved = new Set(savedRows.map((r) => r.entityId));
   const progressMap = new Map(progressRows.map((p) => [p.videoId, p.positionMs]));
   const posterMap = new Map(posterRows.map((p) => [p.key, mediaSrc(p)]));
+  const streamMap = new Map<string, string>();
+  for (const job of jobRows) {
+    if (job.outputKey && !streamMap.has(job.videoId)) streamMap.set(job.videoId, job.outputKey);
+  }
 
   return rows.map((row) => {
     const m = mediaMap.get(row.mediaId);
@@ -139,6 +146,7 @@ export async function buildVideosPayload(rows: (typeof videos.$inferSelect)[], v
       category: row.category,
       kind: row.kind,
       url: mediaSrc(m ?? null),
+      streamUrl: row.kind === "long" && row.audience === "public" && streamMap.has(row.id) ? mediaSrc({ key: streamMap.get(row.id)! }) : null,
       posterUrl: row.posterKey ? (posterMap.get(row.posterKey) ?? null) : null,
       hashtags: (row.hashtags ?? []) as string[],
       durationMs: row.durationMs,
