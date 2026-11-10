@@ -74,6 +74,8 @@ export type VideoPayload = {
   category: string;
   kind: string;
   url: string | null;
+  hlsUrl: string | null;
+  qualityLevels: number[];
   posterUrl: string | null;
   hashtags: string[];
   durationMs: number | null;
@@ -139,6 +141,8 @@ export async function buildVideosPayload(rows: (typeof videos.$inferSelect)[], v
       category: row.category,
       kind: row.kind,
       url: mediaSrc(m ?? null),
+      hlsUrl: row.kind === "long" && row.hlsKey ? mediaSrc({ key: row.hlsKey }) : null,
+      qualityLevels: (row.qualityLevels ?? []) as number[],
       posterUrl: row.posterKey ? (posterMap.get(row.posterKey) ?? null) : null,
       hashtags: (row.hashtags ?? []) as string[],
       durationMs: row.durationMs,
