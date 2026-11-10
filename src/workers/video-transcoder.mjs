@@ -1,8 +1,8 @@
 import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import { spawn } from "node:child_process";
-import { createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -49,8 +49,8 @@ async function claimJob() {
       JOIN media m ON m.id = v.media_id
       WHERE j.status = 'queued' AND v.kind = 'long' AND v.deleted_at IS NULL
       ORDER BY j.created_at
-      FOR UPDATE OF j SKIP LOCKED
       LIMIT 1
+      FOR UPDATE OF j SKIP LOCKED
     `);
     if (!result.rows.length) {
       await client.query("COMMIT");
@@ -148,7 +148,7 @@ async function transcode(job) {
       ]),
       "",
     ].join("\n");
-    await import("node:fs/promises").then(({ writeFile }) => writeFile(path.join(output, "master.m3u8"), master, "utf8"));
+    await writeFile(path.join(output, "master.m3u8"), master, "utf8");
 
     const prefix = `videos/${job.video_id}/hls`;
     await uploadTree(output, prefix);
