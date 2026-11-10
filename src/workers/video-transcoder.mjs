@@ -48,6 +48,7 @@ async function claimJob() {
       JOIN videos v ON v.id = j.video_id
       JOIN media m ON m.id = v.media_id
       WHERE j.status = 'queued' AND v.kind = 'long' AND v.deleted_at IS NULL
+        AND m.remote_url IS NULL AND m.key NOT LIKE 'http://%' AND m.key NOT LIKE 'https://%'
       ORDER BY j.created_at
       LIMIT 1
       FOR UPDATE OF j SKIP LOCKED
