@@ -48,9 +48,10 @@ async function processJob(job) {
     if (!response.ok || !response.body) throw new Error("Could not download source video: " + response.status);
     await writeFile(input, Buffer.from(await response.arrayBuffer()));
 
-    const probe = JSON.parse(await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=height", "-of", "json", input]));
+    const probe = JSON.parse(await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", input]));
+    const sourceWidth = Number(probe.streams?.[0]?.width || 0);
     const sourceHeight = Number(probe.streams?.[0]?.height || 0);
-    if (!sourceHeight) throw new Error("Source has no readable video stream");
+    if (!sourceHeight || !sourceWidth) throw new Error("Source has no readable video stream");
 
     const variants = [
       { height: 360, bandwidth: 800000, name: "360p" },
@@ -75,7 +76,8 @@ async function processJob(job) {
         "-f", "hls", "-hls_time", "6", "-hls_playlist_type", "vod",
         "-hls_segment_filename", path.join(folder, "segment_%05d.ts"), playlist,
       ]);
-      master.push(`#EXT-X-STREAM-INF:BANDWIDTH=${variant.bandwidth},RESOLUTION=0x${variant.height}`);
+      const outputWidth = Math.floor((sourceWidth * variant.height / sourceHeight) / 2) * 2;
+      master.push(`#EXT-X-STREAM-INF:BANDWIDTH=${variant.bandwidth},RESOLUTION=${outputWidth}x${variant.height}`);
       master.push(`${variant.name}/index.m3u8`);
     }
     await writeFile(path.join(outputRoot, "master.m3u8"), master.join("\n") + "\n");
