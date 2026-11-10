@@ -63,3 +63,8 @@ The video page uses HLS.js in browsers without native HLS and falls back to the 
 - Failed jobs are marked failed for visibility; automatic retry/backoff and stale-job recovery are not included yet.
 - The worker does not yet generate thumbnails, subtitles, or 1440p/4K renditions.
 - Original uploads are kept, so HLS renditions require additional storage.
+
+
+## Recovery and retries
+
+The worker refreshes the active job heartbeat every 60 seconds. Jobs left in `processing` for more than 15 minutes are requeued on the next worker poll. Each job is attempted up to three times; repeated failures are marked `failed` and shown on the video record. Apply migration `0002_video_job_retries.sql` before starting the updated worker.
