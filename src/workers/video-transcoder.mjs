@@ -1,8 +1,9 @@
 import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { Pool } from "pg";
 import { spawn } from "node:child_process";
-import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -18,8 +19,16 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2, conn
 const s3 = new S3Client({
   region,
   endpoint,
-  credentials: { accessKeyId: process.env.S3_ACCESS_KEY, secretAccessKey: process.env.S3_SECRET_KEY },
-  forcePathStyle: false,
+  credentials: {
+    accessKeyId: process.env.S3_ACCESS_KEY,
+    secretAccessKey: process.env.S3_SECRET_KEY,
+  },
+  forcePathStyle: true,
+  maxAttempts: 5,
+  requestHandler: new NodeHttpHandler({
+  connectionTimeout: 30_000,
+  requestTimeout: 300_000,
+}),
 });
 
 let stopping = false;
@@ -116,28 +125,58 @@ async function claimJob() {
   }
 }
 
+
 async function uploadTree(localDir, prefix) {
   const entries = await readdir(localDir, { withFileTypes: true });
+
   for (const entry of entries) {
     const full = path.join(localDir, entry.name);
+
     if (entry.isDirectory()) {
       await uploadTree(full, `${prefix}/${entry.name}`);
       continue;
     }
+
     const key = `${prefix}/${entry.name}`;
-    const mime = entry.name.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : entry.name.endsWith(".ts") ? "video/mp2t" : "application/octet-stream";
-    const info = await stat(full);
-    await s3.send(new PutObjectCommand({
-      Bucket: bucket,
-      Key: key,
-      Body: createReadStream(full),
-      ContentLength: info.size,
-      ContentType: mime,
-      ACL: "public-read",
-      CacheControl: entry.name.endsWith(".m3u8") ? "public, max-age=60" : "public, max-age=31536000, immutable",
-    }));
+    const mime = entry.name.endsWith(".m3u8")
+      ? "application/vnd.apple.mpegurl"
+      : entry.name.endsWith(".ts")
+        ? "video/mp2t"
+        : "application/octet-stream";
+
+    const body = await readFile(full);
+
+    console.log(
+      `[video-worker] uploading ${key} (${body.length} bytes)`
+    );
+
+    try {
+      await s3.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: body,
+        ContentLength: body.length,
+        ContentType: mime,
+        CacheControl: entry.name.endsWith(".m3u8")
+          ? "public, max-age=60"
+          : "public, max-age=31536000, immutable",
+      }));
+
+      console.log(`[video-worker] uploaded ${key}`);
+    } catch (error) {
+      console.error(`[video-worker] upload failed ${key}`, {
+        name: error?.name,
+        message: error?.message,
+        code: error?.Code ?? error?.code,
+        httpStatusCode: error?.$metadata?.httpStatusCode,
+        attempts: error?.$metadata?.attempts,
+      });
+
+      throw error;
+    }
   }
 }
+
 
 
 async function transcode(job) {
@@ -203,7 +242,14 @@ async function transcode(job) {
     );
     console.log(`[video-worker] ready video=${job.video_id} qualities=${heights.join(",")}`);
   } finally {
-    await rm(temp, { recursive: true, force: true });
+    await rm(temp, {
+  recursive: true,
+  force: true,
+  maxRetries: 5,
+  retryDelay: 1000,
+}).catch((error) => {
+  console.warn(`[video-worker] temp cleanup warning: ${error.message}`);
+});
   }
 }
 
@@ -211,12 +257,19 @@ async function main() {
   console.log("[video-worker] started; waiting for long-video jobs");
   while (!stopping) {
     try {
-      await recoverStaleJobs();
-      const job = await claimJob();
-      if (!job) {
-        await new Promise((resolve) => setTimeout(resolve, pollMs));
-        continue;
-      }
+      console.log("[video-worker] checking database...");
+await recoverStaleJobs();
+console.log("[video-worker] database recovery OK");
+
+const job = await claimJob();
+
+if (!job) {
+  console.log("[video-worker] no eligible queued jobs");
+  await new Promise((resolve) => setTimeout(resolve, pollMs));
+  continue;
+}
+
+console.log(`[video-worker] CLAIMED job=${job.job_id} video=${job.video_id}`);
       const heartbeat = setInterval(() => {
         void pool.query("UPDATE video_jobs SET updated_at = now() WHERE id = $1 AND status = 'processing'", [job.job_id])
           .catch((error) => console.error("[video-worker] heartbeat failed", error));
