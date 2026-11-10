@@ -203,6 +203,40 @@ export function VideoCard({
   );
 }
 
+type HlsPlayerInstance = {
+  levels: { height: number }[];
+  currentLevel: number;
+  loadSource: (url: string) => void;
+  attachMedia: (media: HTMLMediaElement) => void;
+  on: (event: string, callback: () => void) => void;
+  destroy: () => void;
+};
+
+type HlsPlayerConstructor = {
+  new (): HlsPlayerInstance;
+  isSupported: () => boolean;
+  Events: { LEVELS_UPDATED: string };
+};
+
+function loadHlsPlayer(): Promise<HlsPlayerConstructor | null> {
+  const getHls = () => (window as Window & { Hls?: HlsPlayerConstructor }).Hls ?? null;
+  const existing = getHls();
+  if (existing) return Promise.resolve(existing);
+  return new Promise((resolve) => {
+    let script = document.querySelector<HTMLScriptElement>("script[data-uzon-hls]");
+    if (!script) {
+      script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/hls.js@1.6.15/dist/hls.min.js";
+      script.async = true;
+      script.dataset.uzonHls = "true";
+      document.head.appendChild(script);
+    }
+    script.addEventListener("load", () => resolve(getHls()), { once: true });
+    script.addEventListener("error", () => resolve(null), { once: true });
+    if (getHls()) resolve(getHls());
+  });
+}
+
 export function VideoPlayer({
   video,
   viewRegisterMs = 3000,
@@ -221,6 +255,10 @@ export function VideoPlayer({
   const { t, fmt, toast, user } = useApp();
   const queryClient = useQueryClient();
   const ref = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<HlsPlayerInstance | null>(null);
+  const [quality, setQuality] = useState("auto");
+  const [availableQualities, setAvailableQualities] = useState<number[]>(video.qualityLevels ?? []);
+  const [hlsReady, setHlsReady] = useState(false);
 
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -255,6 +293,71 @@ export function VideoPlayer({
       } catch { toast(url, "info"); }
     }
   };
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    let cancelled = false;
+    let instance: HlsPlayerInstance | null = null;
+
+    const useOriginal = () => {
+      if (!cancelled && video.url) element.src = video.url;
+    };
+
+    if (!video.hlsUrl) {
+      useOriginal();
+      setHlsReady(false);
+      return;
+    }
+
+    if (element.canPlayType("application/vnd.apple.mpegurl")) {
+      element.src = video.hlsUrl;
+      setHlsReady(false);
+      return () => { element.removeAttribute("src"); element.load(); };
+    }
+
+    void loadHlsPlayer().then((Hls) => {
+      if (cancelled) return;
+      if (!Hls || !Hls.isSupported()) {
+        useOriginal();
+        return;
+      }
+      instance = new Hls();
+      hlsRef.current = instance;
+      instance.attachMedia(element);
+      instance.loadSource(video.hlsUrl!);
+      instance.on(Hls.Events.LEVELS_UPDATED, () => {
+        if (!instance || cancelled) return;
+        const levels = Array.from(new Set(instance.levels.map((level) => level.height).filter(Boolean))).sort((a, b) => a - b);
+        setAvailableQualities(levels);
+        setHlsReady(levels.length > 0);
+        if (quality !== "auto") {
+          const selected = instance.levels.findIndex((level) => String(level.height) === quality);
+          instance.currentLevel = selected >= 0 ? selected : -1;
+        }
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      instance?.destroy();
+      if (hlsRef.current === instance) hlsRef.current = null;
+      element.removeAttribute("src");
+      element.load();
+      setHlsReady(false);
+    };
+  }, [video.id, video.hlsUrl, video.url]);
+
+  useEffect(() => {
+    const instance = hlsRef.current;
+    if (!instance) return;
+    if (quality === "auto") {
+      instance.currentLevel = -1;
+      return;
+    }
+    const index = instance.levels.findIndex((level) => String(level.height) === quality);
+    instance.currentLevel = index >= 0 ? index : -1;
+  }, [quality, hlsReady]);
 
   useEffect(() => {
     const element = ref.current;
@@ -367,7 +470,6 @@ export function VideoPlayer({
         {video.url ? (
           <video
             ref={ref}
-            src={video.url}
             poster={video.posterUrl ?? undefined}
             className="h-full w-full bg-black object-contain"
             playsInline
@@ -433,6 +535,22 @@ export function VideoPlayer({
             <span className="ml-1 text-[11px] tabular-nums text-white/80">
               {fmt.duration(current * 1000)} / {fmt.duration(duration * 1000)}
             </span>
+            {hlsReady && (
+              <label className="ml-1 flex items-center gap-1 text-[11px] text-white/80">
+                <span className="hidden sm:inline">Качество</span>
+                <select
+                  aria-label="Качество видео"
+                  value={quality}
+                  onChange={(event) => setQuality(event.target.value)}
+                  className="max-w-[76px] rounded-md border border-white/20 bg-black/70 px-1.5 py-1 text-[11px] text-white outline-none"
+                >
+                  <option value="auto">Авто</option>
+                  {availableQualities.map((height) => (
+                    <option key={height} value={String(height)}>{height}p</option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <div className="ml-auto flex items-center gap-1">
               <Button size="sm" variant={likeState.liked ? "primary" : "ghost"} className={cn("text-white hover:bg-white/20", likeState.liked && "bg-brand text-white")} icon={<Heart className={cn("h-4 w-4", likeState.liked && "fill-white")} />} onClick={() => likeMutation.mutate(undefined, { onSuccess: (data) => setLikeState({ liked: data.liked, count: data.likeCount }) })}>
