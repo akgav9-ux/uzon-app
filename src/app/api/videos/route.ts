@@ -113,14 +113,22 @@ export async function POST(req: Request) {
         durationMs: durationMs || null,
         audience: body.audience ?? "public",
         commentsEnabled: body.commentsEnabled ?? true,
-        status: "ready",
-        processingNote: asset.remoteUrl
-          ? "External demo asset"
-          : "Original file is served progressively. Multi-quality HLS transcoding requires an external media service (see DEPLOYMENT.md).",
+        status: kind === "long" && (body.audience ?? "public") === "public" && !asset.remoteUrl ? "processing" : "ready",
+        processingNote: kind === "long" && (body.audience ?? "public") === "public" && !asset.remoteUrl
+          ? "Preparing adaptive video qualities"
+          : asset.remoteUrl
+            ? "External media remains progressive"
+            : null,
       })
       .returning();
 
-    await db.insert(videoJobs).values({ videoId: row!.id, stage: "done", status: "ready", progress: 100 });
+    const shouldTranscode = kind === "long" && (body.audience ?? "public") === "public" && !asset.remoteUrl;
+    await db.insert(videoJobs).values({
+      videoId: row!.id,
+      stage: shouldTranscode ? "queued" : "done",
+      status: shouldTranscode ? "queued" : "ready",
+      progress: shouldTranscode ? 0 : 100,
+    });
     // Publishing switches the account into creator mode automatically.
     if (!user.isCreator) {
       const { profiles } = await import("@/db/schema");
