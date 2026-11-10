@@ -38,12 +38,52 @@ function run(command, args) {
   });
 }
 
+async function recoverStaleJobs() {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`
+      UPDATE video_jobs
+      SET status = 'queued', stage = 'queued', progress = 0,
+          error = COALESCE(error, 'Worker stopped before finishing; job requeued'),
+          updated_at = now()
+      WHERE status = 'processing'
+        AND updated_at < now() - interval '15 minutes'
+        AND attempts < 3
+    `);
+    await client.query(`
+      UPDATE video_jobs
+      SET status = 'failed', stage = 'failed',
+          error = COALESCE(error, 'Worker stopped repeatedly; retry limit reached'),
+          updated_at = now()
+      WHERE status = 'processing'
+        AND updated_at < now() - interval '15 minutes'
+        AND attempts >= 3
+    `);
+    await client.query(`
+      UPDATE videos v
+      SET status = 'failed',
+          processing_note = 'Video processing stopped repeatedly. Please contact support.',
+          updated_at = now()
+      FROM video_jobs j
+      WHERE j.video_id = v.id AND j.status = 'failed'
+        AND v.status = 'processing'
+    `);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function claimJob() {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const result = await client.query(`
-      SELECT j.id AS job_id, j.video_id, v.owner_id, m.key AS source_key
+      SELECT j.id AS job_id, j.video_id, j.attempts, v.owner_id, m.key AS source_key
       FROM video_jobs j
       JOIN videos v ON v.id = j.video_id
       JOIN media m ON m.id = v.media_id
@@ -59,7 +99,7 @@ async function claimJob() {
     }
     const job = result.rows[0];
     await client.query(
-      "UPDATE video_jobs SET status = 'processing', stage = 'probing', progress = 5, error = NULL, updated_at = now() WHERE id = $1",
+      "UPDATE video_jobs SET status = 'processing', stage = 'probing', progress = 5, attempts = attempts + 1, error = NULL, updated_at = now() WHERE id = $1",
       [job.job_id],
     );
     await client.query(
@@ -170,18 +210,32 @@ async function main() {
   console.log("[video-worker] started; waiting for long-video jobs");
   while (!stopping) {
     try {
+      await recoverStaleJobs();
       const job = await claimJob();
       if (!job) {
         await new Promise((resolve) => setTimeout(resolve, pollMs));
         continue;
       }
+      const heartbeat = setInterval(() => {
+        void pool.query("UPDATE video_jobs SET updated_at = now() WHERE id = $1 AND status = 'processing'", [job.job_id])
+          .catch((error) => console.error("[video-worker] heartbeat failed", error));
+      }, 60_000);
       try {
         await transcode(job);
       } catch (error) {
         const message = error instanceof Error ? error.message.slice(0, 4000) : "Unknown transcoding error";
-        await pool.query("UPDATE video_jobs SET status = 'failed', stage = 'failed', error = $2, updated_at = now() WHERE id = $1", [job.job_id, message]);
-        await pool.query("UPDATE videos SET status = 'failed', processing_note = 'Video processing failed. Please contact support.', updated_at = now() WHERE id = $1", [job.video_id]);
-        console.error(`[video-worker] failed video=${job.video_id}`, message);
+        const retry = Number(job.attempts || 0) + 1 < 3;
+        await pool.query(
+          "UPDATE video_jobs SET status = $2, stage = $3, progress = 0, error = $4, updated_at = now() WHERE id = $1",
+          [job.job_id, retry ? "queued" : "failed", retry ? "queued" : "failed", message],
+        );
+        await pool.query(
+          "UPDATE videos SET status = $2, processing_note = $3, updated_at = now() WHERE id = $1",
+          [job.video_id, retry ? "processing" : "failed", retry ? "Retrying video processing" : "Video processing failed after 3 attempts. Please contact support."],
+        );
+        console.error(`[video-worker] ${retry ? "retry queued" : "failed"} video=${job.video_id}`, message);
+      } finally {
+        clearInterval(heartbeat);
       }
     } catch (error) {
       console.error("[video-worker] queue error", error);
