@@ -133,6 +133,7 @@ async function uploadTree(localDir, prefix) {
       Body: createReadStream(full),
       ContentLength: info.size,
       ContentType: mime,
+      ACL: "public-read",
       CacheControl: entry.name.endsWith(".m3u8") ? "public, max-age=60" : "public, max-age=31536000, immutable",
     }));
   }
