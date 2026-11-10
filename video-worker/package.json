@@ -1,0 +1,9 @@
+{
+  "name": "uzon-video-worker",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node worker.mjs" },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1152.0"
+  }
+}
