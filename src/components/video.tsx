@@ -215,7 +215,7 @@ type HlsPlayerInstance = {
 type HlsPlayerConstructor = {
   new (): HlsPlayerInstance;
   isSupported: () => boolean;
-  Events: { LEVELS_UPDATED: string; ERROR: string };
+  Events: { MANIFEST_PARSED: string; LEVELS_UPDATED: string; ERROR: string };
 };
 
 let hlsPlayerPromise: Promise<HlsPlayerConstructor | null> | null = null;
@@ -351,9 +351,10 @@ export function VideoPlayer({
       hlsRef.current = instance;
       const activeInstance = instance;
 
-      // Subscribe before attaching/loading: a fast manifest can emit its
-      // level events immediately after the source is attached.
-      instance.on(Hls.Events.LEVELS_UPDATED, () => {
+      // MANIFEST_PARSED is the first reliable point at which hls.js has
+      // discovered the available renditions. LEVELS_UPDATED keeps the list
+      // in sync if the manifest's levels change later.
+      const updateQualities = () => {
         if (!instance || cancelled) return;
         const levels = Array.from(new Set(instance.levels.map((level) => level.height).filter(Boolean))).sort((a, b) => a - b);
         setAvailableQualities(levels);
@@ -362,7 +363,9 @@ export function VideoPlayer({
           const selected = instance.levels.findIndex((level) => String(level.height) === qualityRef.current);
           instance.currentLevel = selected >= 0 ? selected : -1;
         }
-      });
+      };
+      instance.on(Hls.Events.MANIFEST_PARSED, updateQualities);
+      instance.on(Hls.Events.LEVELS_UPDATED, updateQualities);
       instance.on(Hls.Events.ERROR, (_event, data) => {
         if (!data?.fatal || cancelled) return;
         activeInstance.destroy();
