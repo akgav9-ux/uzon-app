@@ -160,6 +160,7 @@ export function CallScreen({ callId }: { callId: string }) {
   const [status, setStatus] = useState("connecting");
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
+  const [switchingCamera, setSwitchingCamera] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -832,46 +833,79 @@ export function CallScreen({ callId }: { callId: string }) {
     const stream = streamRef.current;
     const oldTrack = stream?.getVideoTracks()[0];
 
-    facing.current =
-      facing.current === "user" ? "environment" : "user";
+    if (!stream || !oldTrack || !camOn || switchingCamera) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("Переключение камеры не поддерживается этим браузером.");
+      return;
+    }
+
+    setSwitchingCamera(true);
+    const nextFacing = facing.current === "user" ? "environment" : "user";
+    let replacementStream: MediaStream | null = null;
 
     try {
-      const replacementStream =
-        await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { exact: facing.current } },
-          audio: false,
-        });
+      // Не используем exact: некоторые Android-устройства не принимают
+      // facingMode exact, даже если в телефоне есть обе камеры.
+      replacementStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: nextFacing } },
+        audio: false,
+      });
 
-      const newTrack = replacementStream.getVideoTracks()[0];
-      if (!newTrack || !stream) return;
+      let newTrack = replacementStream.getVideoTracks()[0];
+
+      // Если браузер проигнорировал facingMode, пробуем найти другую камеру
+      // по deviceId и открыть её явно.
+      if (newTrack && oldTrack.getSettings().deviceId &&
+          newTrack.getSettings().deviceId === oldTrack.getSettings().deviceId) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter((device) => device.kind === "videoinput");
+        const alternative = cameras.find(
+          (device) => device.deviceId !== oldTrack.getSettings().deviceId,
+        );
+
+        if (alternative) {
+          replacementStream.getTracks().forEach((track) => track.stop());
+          replacementStream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: { exact: alternative.deviceId } },
+            audio: false,
+          });
+          newTrack = replacementStream.getVideoTracks()[0];
+        }
+      }
+
+      if (!newTrack) throw new Error("Не удалось получить изображение с камеры.");
 
       const sender = pcRef.current
         ?.getSenders()
         .find((item) => item.track?.kind === "video");
 
-      if (sender) await sender.replaceTrack(newTrack);
-
-      if (oldTrack) {
-        stream.removeTrack(oldTrack);
-        oldTrack.stop();
+      if (sender) {
+        await sender.replaceTrack(newTrack);
+      } else if (pcRef.current) {
+        pcRef.current.addTrack(newTrack, stream);
       }
 
+      stream.removeTrack(oldTrack);
+      oldTrack.stop();
       stream.addTrack(newTrack);
       newTrack.enabled = camOn;
+      facing.current = nextFacing;
 
       if (localVideo.current) {
         localVideo.current.srcObject = stream;
         await localVideo.current.play().catch(() => undefined);
       }
-    } catch (cause) {
-      facing.current =
-        facing.current === "user" ? "environment" : "user";
 
+      setError(null);
+    } catch (cause) {
+      replacementStream?.getTracks().forEach((track) => track.stop());
       setError(
         cause instanceof Error
           ? `Не удалось переключить камеру: ${cause.message}`
-          : "Не удалось переключить камеру.",
+          : "Не удалось переключить камеру. Проверьте разрешение на доступ к камере.",
       );
+    } finally {
+      setSwitchingCamera(false);
     }
   };
 
@@ -963,7 +997,7 @@ export function CallScreen({ callId }: { callId: string }) {
         )}
       </div>
 
-      <header className="relative z-20 flex items-center justify-between bg-gradient-to-b from-black/60 to-transparent px-4 pb-8 pt-3">
+      <header className="relative z-20 flex items-center justify-between bg-gradient-to-b from-black/75 via-black/35 to-transparent px-4 pb-8 pt-4 backdrop-blur-[2px]">
         <div className="flex min-w-0 items-center gap-3">
           <Avatar
             name={peer?.displayName ?? "UZON"}
@@ -997,7 +1031,7 @@ export function CallScreen({ callId }: { callId: string }) {
       {kind === "video" && (
         <div
           className={cn(
-            "absolute right-4 top-20 z-20 h-40 w-28 overflow-hidden rounded-2xl border border-white/20 bg-[#1c1c1e] shadow-2xl sm:h-52 sm:w-36",
+            "absolute right-4 top-20 z-20 h-40 w-28 overflow-hidden rounded-[22px] border border-white/25 bg-[#1c1c1e] shadow-[0_12px_40px_rgba(0,0,0,0.45)] ring-1 ring-black/20 sm:h-52 sm:w-36",
             (!camOn || finished) && "hidden",
           )}
         >
@@ -1007,7 +1041,7 @@ export function CallScreen({ callId }: { callId: string }) {
             playsInline
             muted
             className="h-full w-full object-cover"
-            style={{ transform: "scaleX(-1)" }}
+            style={{ transform: facing.current === "user" ? "scaleX(-1)" : undefined }}
           />
         </div>
       )}
@@ -1031,7 +1065,7 @@ export function CallScreen({ callId }: { callId: string }) {
         </div>
       )}
 
-      <section className="relative z-30 mt-auto rounded-t-[28px] border-t border-white/10 bg-[#14161c]/95 px-5 pb-5 pt-5 backdrop-blur-2xl">
+      <section className="relative z-30 mt-auto rounded-t-[32px] border-t border-white/10 bg-gradient-to-b from-[#202330]/95 to-[#101219]/[0.98] px-5 pb-6 pt-6 shadow-[0_-18px_70px_rgba(0,0,0,0.35)] backdrop-blur-2xl">
         {audioBlocked && !finished && (
           <button
             onClick={(event) => {
@@ -1066,62 +1100,64 @@ export function CallScreen({ callId }: { callId: string }) {
           </div>
         ) : (
           <>
-            <div className="mb-5 flex items-center justify-center gap-3">
-              <button
-                aria-label={micOn ? "Выключить микрофон" : "Включить микрофон"}
-                onClick={toggleMic}
-                className={cn(
-                  "flex h-14 w-14 items-center justify-center rounded-full transition active:scale-95",
-                  micOn ? "bg-white/10" : "bg-white text-black",
-                )}
-              >
-                {micOn ? (
-                  <Mic className="h-6 w-6" />
-                ) : (
-                  <MicOff className="h-6 w-6" />
-                )}
-              </button>
-
-              <button
-                aria-label={speakerOn ? "Режим громкой связи" : "Обычный режим звука"}
-                onClick={toggleSpeaker}
-                className={cn(
-                  "flex h-14 w-14 items-center justify-center rounded-full transition active:scale-95",
-                  speakerOn ? "bg-white/10" : "bg-white text-black",
-                )}
-              >
-                {speakerOn ? (
-                  <Volume2 className="h-6 w-6" />
-                ) : (
-                  <VolumeX className="h-6 w-6" />
-                )}
-              </button>
-
-              {kind === "video" && (
+            <div className="mb-6 flex items-start justify-center gap-4">
+              <div className="flex min-w-0 flex-col items-center gap-2">
                 <button
-                  aria-label={camOn ? "Выключить камеру" : "Включить камеру"}
-                  onClick={() => void toggleCamera()}
+                  aria-label={micOn ? "Выключить микрофон" : "Включить микрофон"}
+                  onClick={toggleMic}
                   className={cn(
-                    "flex h-14 w-14 items-center justify-center rounded-full transition active:scale-95",
-                    camOn ? "bg-white/10" : "bg-white text-black",
+                    "flex h-14 w-14 items-center justify-center rounded-full border border-white/10 shadow-lg transition active:scale-95",
+                    micOn ? "bg-white/10 text-white" : "bg-white text-black",
                   )}
                 >
-                  {camOn ? (
-                    <Video className="h-6 w-6" />
-                  ) : (
-                    <VideoOff className="h-6 w-6" />
-                  )}
+                  {micOn ? <Mic className="h-6 w-6" /> : <MicOff className="h-6 w-6" />}
                 </button>
+                <span className="text-[10px] font-medium text-white/55">Микрофон</span>
+              </div>
+
+              <div className="flex min-w-0 flex-col items-center gap-2">
+                <button
+                  aria-label={speakerOn ? "Режим громкой связи" : "Обычный режим звука"}
+                  onClick={toggleSpeaker}
+                  className={cn(
+                    "flex h-14 w-14 items-center justify-center rounded-full border border-white/10 shadow-lg transition active:scale-95",
+                    speakerOn ? "bg-white/10 text-white" : "bg-white text-black",
+                  )}
+                >
+                  {speakerOn ? <Volume2 className="h-6 w-6" /> : <VolumeX className="h-6 w-6" />}
+                </button>
+                <span className="text-[10px] font-medium text-white/55">Динамик</span>
+              </div>
+
+              {kind === "video" && (
+                <div className="flex min-w-0 flex-col items-center gap-2">
+                  <button
+                    aria-label={camOn ? "Выключить камеру" : "Включить камеру"}
+                    onClick={() => void toggleCamera()}
+                    className={cn(
+                      "flex h-14 w-14 items-center justify-center rounded-full border border-white/10 shadow-lg transition active:scale-95",
+                      camOn ? "bg-white/10 text-white" : "bg-white text-black",
+                    )}
+                  >
+                    {camOn ? <Video className="h-6 w-6" /> : <VideoOff className="h-6 w-6" />}
+                  </button>
+                  <span className="text-[10px] font-medium text-white/55">Камера</span>
+                </div>
               )}
 
               {kind === "video" && (
-                <button
-                  aria-label="Переключить камеру"
-                  onClick={() => void switchCamera()}
-                  className="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 transition active:scale-95"
-                >
-                  <SwitchCamera className="h-6 w-6" />
-                </button>
+                <div className="flex min-w-0 flex-col items-center gap-2">
+                  <button
+                    aria-label={switchingCamera ? "Переключение камеры" : facing.current === "user" ? "Переключить на заднюю камеру" : "Переключить на селфи-камеру"}
+                    title={facing.current === "user" ? "Задняя камера" : "Селфи-камера"}
+                    onClick={() => void switchCamera()}
+                    disabled={!camOn || switchingCamera || finished}
+                    className="flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white shadow-lg transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <SwitchCamera className={cn("h-6 w-6", switchingCamera && "animate-spin")} />
+                  </button>
+                  <span className="text-[10px] font-medium text-white/55">Сменить</span>
+                </div>
               )}
             </div>
 
