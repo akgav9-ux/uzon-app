@@ -203,6 +203,56 @@ export function VideoCard({
   );
 }
 
+type HlsPlayerInstance = {
+  levels: { height: number }[];
+  currentLevel: number;
+  loadSource: (url: string) => void;
+  attachMedia: (media: HTMLMediaElement) => void;
+  on: (event: string, callback: (event?: string, data?: { fatal?: boolean }) => void) => void;
+  destroy: () => void;
+};
+
+type HlsPlayerConstructor = {
+  new (): HlsPlayerInstance;
+  isSupported: () => boolean;
+  Events: { MANIFEST_PARSED: string; LEVELS_UPDATED: string; ERROR: string };
+};
+
+let hlsPlayerPromise: Promise<HlsPlayerConstructor | null> | null = null;
+
+function loadHlsPlayer(): Promise<HlsPlayerConstructor | null> {
+  const getHls = () => (window as Window & { Hls?: HlsPlayerConstructor }).Hls ?? null;
+  const existing = getHls();
+  if (existing) return Promise.resolve(existing);
+  if (hlsPlayerPromise) return hlsPlayerPromise;
+
+  hlsPlayerPromise = new Promise((resolve) => {
+    let script = document.querySelector<HTMLScriptElement>("script[data-uzon-hls]");
+    if (script?.dataset.uzonHlsLoaded === "true" || script?.dataset.uzonHlsFailed === "true") {
+      resolve(getHls());
+      return;
+    }
+    if (!script) {
+      script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/hls.js@1.6.15/dist/hls.min.js";
+      script.async = true;
+      script.dataset.uzonHls = "true";
+    }
+    script.addEventListener("load", () => {
+      script!.dataset.uzonHlsLoaded = "true";
+      resolve(getHls());
+    }, { once: true });
+    script.addEventListener("error", () => {
+      script!.dataset.uzonHlsFailed = "true";
+      resolve(null);
+    }, { once: true });
+    if (getHls()) resolve(getHls());
+    else if (!script.isConnected) document.head.appendChild(script);
+  });
+
+  return hlsPlayerPromise;
+}
+
 export function VideoPlayer({
   video,
   viewRegisterMs = 3000,
@@ -221,6 +271,12 @@ export function VideoPlayer({
   const { t, fmt, toast, user } = useApp();
   const queryClient = useQueryClient();
   const ref = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<HlsPlayerInstance | null>(null);
+  const [quality, setQuality] = useState("auto");
+  const qualityRef = useRef(quality);
+  useEffect(() => { qualityRef.current = quality; }, [quality]);
+    const [availableQualities, setAvailableQualities] = useState<number[]>(video.qualityLevels ?? []);
+  const [hlsReady, setHlsReady] = useState(false);
 
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -234,7 +290,7 @@ export function VideoPlayer({
 
   const watchedMs = useRef(0);
   const viewSent = useRef(false);
-  const lastTick = useRef(Date.now());
+  const lastTick = useRef(0);
   const controlsTimeout = useRef<number | null>(null);
 
   const shareVideo = async () => {
@@ -255,6 +311,93 @@ export function VideoPlayer({
       } catch { toast(url, "info"); }
     }
   };
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    let cancelled = false;
+    let instance: HlsPlayerInstance | null = null;
+
+    const setOriginalSource = () => {
+      if (!cancelled && video.url) element.src = video.url;
+    };
+
+    setQuality("auto");
+    setHlsReady(false);
+    setAvailableQualities([]);
+    if (!video.hlsUrl) {
+      setOriginalSource();
+      return;
+    }
+
+    // Safari on Apple platforms can play HLS natively. Do not use
+    // canPlayType() alone here: Chromium may also return "maybe", which
+    // would incorrectly bypass hls.js and hide the quality selector.
+    const isAppleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const isSafari = /^((?!chrome|crios|android).)*safari/i.test(navigator.userAgent);
+    if ((isAppleMobile || isSafari) && element.canPlayType("application/vnd.apple.mpegurl")) {
+      element.src = video.hlsUrl;
+      return () => { element.removeAttribute("src"); element.load(); };
+    }
+
+    void loadHlsPlayer().then((Hls) => {
+      if (cancelled) return;
+      if (!Hls || !Hls.isSupported()) {
+        setOriginalSource();
+        return;
+      }
+      instance = new Hls();
+      hlsRef.current = instance;
+      const activeInstance = instance;
+
+      // MANIFEST_PARSED is the first reliable point at which hls.js has
+      // discovered the available renditions. LEVELS_UPDATED keeps the list
+      // in sync if the manifest's levels change later.
+      const updateQualities = () => {
+        if (!instance || cancelled) return;
+        const levels = Array.from(new Set(instance.levels.map((level) => level.height).filter(Boolean))).sort((a, b) => a - b);
+        setAvailableQualities(levels);
+        setHlsReady(levels.length > 0);
+        if (qualityRef.current !== "auto") {
+          const selected = instance.levels.findIndex((level) => String(level.height) === qualityRef.current);
+          instance.currentLevel = selected >= 0 ? selected : -1;
+        }
+      };
+      instance.on(Hls.Events.MANIFEST_PARSED, updateQualities);
+      instance.on(Hls.Events.LEVELS_UPDATED, updateQualities);
+      instance.on(Hls.Events.ERROR, (_event, data) => {
+        if (!data?.fatal || cancelled) return;
+        activeInstance.destroy();
+        if (hlsRef.current === activeInstance) hlsRef.current = null;
+        setHlsReady(false);
+        setAvailableQualities([]);
+        setOriginalSource();
+      });
+
+      instance.attachMedia(element);
+      instance.loadSource(video.hlsUrl!);
+    });
+
+    return () => {
+      cancelled = true;
+      instance?.destroy();
+      if (hlsRef.current === instance) hlsRef.current = null;
+      element.removeAttribute("src");
+      element.load();
+    };
+  }, [video.id, video.hlsUrl, video.url]);
+
+  useEffect(() => {
+    const instance = hlsRef.current;
+    if (!instance) return;
+    if (quality === "auto") {
+      instance.currentLevel = -1;
+      return;
+    }
+    const index = instance.levels.findIndex((level) => String(level.height) === quality);
+    instance.currentLevel = index >= 0 ? index : -1;
+  }, [quality, hlsReady]);
 
   useEffect(() => {
     const element = ref.current;
@@ -367,7 +510,6 @@ export function VideoPlayer({
         {video.url ? (
           <video
             ref={ref}
-            src={video.url}
             poster={video.posterUrl ?? undefined}
             className="h-full w-full bg-black object-contain"
             playsInline
@@ -433,6 +575,22 @@ export function VideoPlayer({
             <span className="ml-1 text-[11px] tabular-nums text-white/80">
               {fmt.duration(current * 1000)} / {fmt.duration(duration * 1000)}
             </span>
+            {hlsReady && (
+              <label className="ml-1 flex items-center gap-1 text-[11px] text-white/80">
+                <span className="hidden sm:inline">Качество</span>
+                <select
+                  aria-label="Качество видео"
+                  value={quality}
+                  onChange={(event) => setQuality(event.target.value)}
+                  className="max-w-[76px] rounded-md border border-white/20 bg-black/70 px-1.5 py-1 text-[11px] text-white outline-none"
+                >
+                  <option value="auto">Авто</option>
+                  {availableQualities.map((height) => (
+                    <option key={height} value={String(height)}>{height}p</option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <div className="ml-auto flex items-center gap-1">
               <Button size="sm" variant={likeState.liked ? "primary" : "ghost"} className={cn("text-white hover:bg-white/20", likeState.liked && "bg-brand text-white")} icon={<Heart className={cn("h-4 w-4", likeState.liked && "fill-white")} />} onClick={() => likeMutation.mutate(undefined, { onSuccess: (data) => setLikeState({ liked: data.liked, count: data.likeCount }) })}>

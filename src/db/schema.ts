@@ -447,6 +447,8 @@ export const videos = pgTable(
     commentsEnabled: boolean("comments_enabled").notNull().default(true),
     status: text("status").notNull().default("processing"), // processing | ready | failed
     processingNote: text("processing_note"),
+    hlsKey: text("hls_key"),
+    qualityLevels: jsonb("quality_levels").$type<number[]>().notNull().default([]),
     viewCount: integer("view_count").notNull().default(0),
     likeCount: integer("like_count").notNull().default(0),
     commentCount: integer("comment_count").notNull().default(0),
@@ -472,6 +474,7 @@ export const videoJobs = pgTable(
     status: text("status").notNull().default("queued"),
     progress: integer("progress").notNull().default(0),
     error: text("error"),
+    attempts: integer("attempts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

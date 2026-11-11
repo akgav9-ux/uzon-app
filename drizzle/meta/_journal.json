@@ -8,6 +8,20 @@
       "when": 1792310059480,
       "tag": "0000_known_xavin",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792310059481,
+      "tag": "0001_video_hls",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794355200000,
+      "tag": "0002_video_job_retries",
+      "breakpoints": true
     }
   ]
 }
