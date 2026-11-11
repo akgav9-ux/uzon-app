@@ -160,6 +160,7 @@ export function CallScreen({ callId }: { callId: string }) {
   const [status, setStatus] = useState("connecting");
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
+  const [switchingCamera, setSwitchingCamera] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -832,46 +833,79 @@ export function CallScreen({ callId }: { callId: string }) {
     const stream = streamRef.current;
     const oldTrack = stream?.getVideoTracks()[0];
 
-    facing.current =
-      facing.current === "user" ? "environment" : "user";
+    if (!stream || !oldTrack || !camOn || switchingCamera) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("Переключение камеры не поддерживается этим браузером.");
+      return;
+    }
+
+    setSwitchingCamera(true);
+    const nextFacing = facing.current === "user" ? "environment" : "user";
+    let replacementStream: MediaStream | null = null;
 
     try {
-      const replacementStream =
-        await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { exact: facing.current } },
-          audio: false,
-        });
+      // Не используем exact: некоторые Android-устройства не принимают
+      // facingMode exact, даже если в телефоне есть обе камеры.
+      replacementStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: nextFacing } },
+        audio: false,
+      });
 
-      const newTrack = replacementStream.getVideoTracks()[0];
-      if (!newTrack || !stream) return;
+      let newTrack = replacementStream.getVideoTracks()[0];
+
+      // Если браузер проигнорировал facingMode, пробуем найти другую камеру
+      // по deviceId и открыть её явно.
+      if (newTrack && oldTrack.getSettings().deviceId &&
+          newTrack.getSettings().deviceId === oldTrack.getSettings().deviceId) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter((device) => device.kind === "videoinput");
+        const alternative = cameras.find(
+          (device) => device.deviceId !== oldTrack.getSettings().deviceId,
+        );
+
+        if (alternative) {
+          replacementStream.getTracks().forEach((track) => track.stop());
+          replacementStream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: { exact: alternative.deviceId } },
+            audio: false,
+          });
+          newTrack = replacementStream.getVideoTracks()[0];
+        }
+      }
+
+      if (!newTrack) throw new Error("Не удалось получить изображение с камеры.");
 
       const sender = pcRef.current
         ?.getSenders()
         .find((item) => item.track?.kind === "video");
 
-      if (sender) await sender.replaceTrack(newTrack);
-
-      if (oldTrack) {
-        stream.removeTrack(oldTrack);
-        oldTrack.stop();
+      if (sender) {
+        await sender.replaceTrack(newTrack);
+      } else if (pcRef.current) {
+        pcRef.current.addTrack(newTrack, stream);
       }
 
+      stream.removeTrack(oldTrack);
+      oldTrack.stop();
       stream.addTrack(newTrack);
       newTrack.enabled = camOn;
+      facing.current = nextFacing;
 
       if (localVideo.current) {
         localVideo.current.srcObject = stream;
         await localVideo.current.play().catch(() => undefined);
       }
-    } catch (cause) {
-      facing.current =
-        facing.current === "user" ? "environment" : "user";
 
+      setError(null);
+    } catch (cause) {
+      replacementStream?.getTracks().forEach((track) => track.stop());
       setError(
         cause instanceof Error
           ? `Не удалось переключить камеру: ${cause.message}`
-          : "Не удалось переключить камеру.",
+          : "Не удалось переключить камеру. Проверьте разрешение на доступ к камере.",
       );
+    } finally {
+      setSwitchingCamera(false);
     }
   };
 
@@ -1007,7 +1041,7 @@ export function CallScreen({ callId }: { callId: string }) {
             playsInline
             muted
             className="h-full w-full object-cover"
-            style={{ transform: "scaleX(-1)" }}
+            style={{ transform: facing.current === "user" ? "scaleX(-1)" : undefined }}
           />
         </div>
       )}
@@ -1116,11 +1150,13 @@ export function CallScreen({ callId }: { callId: string }) {
 
               {kind === "video" && (
                 <button
-                  aria-label="Переключить камеру"
+                  aria-label={switchingCamera ? "Переключение камеры" : facing.current === "user" ? "Переключить на заднюю камеру" : "Переключить на селфи-камеру"}
+                  title={facing.current === "user" ? "Задняя камера" : "Селфи-камера"}
                   onClick={() => void switchCamera()}
-                  className="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 transition active:scale-95"
+                  disabled={!camOn || switchingCamera || finished}
+                  className="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <SwitchCamera className="h-6 w-6" />
+                  <SwitchCamera className={cn("h-6 w-6", switchingCamera && "animate-spin")} />
                 </button>
               )}
             </div>
