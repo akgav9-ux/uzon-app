@@ -195,6 +195,11 @@ export async function getSessionUser(req: Request, allowUnverifiedEmail = false)
 
   const user = await loadUserById(session.userId, allowUnverifiedEmail);
   if (!user) {
+    // Keep a valid pending-email session alive for the verify/resend actions,
+    // but never expose it as an authenticated session to ordinary API routes.
+    const pendingEmailUser = allowUnverifiedEmail ? null : await loadUserById(session.userId, true);
+    if (pendingEmailUser) return null;
+
     // A suspended/deleted account must not regain access through an old cookie
     // if it is later restored. Revoke the session as soon as it is observed.
     await db
