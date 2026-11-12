@@ -1,5 +1,5 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { privacySettings, profiles, sessions, userSettings } from "@/db/schema";
 import { ApiError } from "@/lib/http";
@@ -145,13 +145,17 @@ const DEFAULT_PRIVACY = {
 };
 
 /** Only active accounts can be converted into an authenticated session user. */
-export async function loadUserById(userId: string): Promise<SessionUser | null> {
+export async function loadUserById(userId: string, allowUnverifiedEmail = false): Promise<SessionUser | null> {
   const rows = await db
     .select({ profile: profiles, settings: userSettings, privacy: privacySettings })
     .from(profiles)
     .leftJoin(userSettings, eq(userSettings.userId, profiles.id))
     .leftJoin(privacySettings, eq(privacySettings.userId, profiles.id))
-    .where(and(eq(profiles.id, userId), eq(profiles.status, "active")))
+    .where(
+      allowUnverifiedEmail
+        ? and(eq(profiles.id, userId), eq(profiles.status, "active"))
+        : and(eq(profiles.id, userId), eq(profiles.status, "active"), or(isNull(profiles.email), eq(profiles.emailVerified, true))),
+    )
     .limit(1);
 
   const row = rows[0];
@@ -170,7 +174,7 @@ export function tokenFromRequest(req: Request): string | null {
 }
 
 /** Resolves the authenticated user for a request, or null when anonymous. */
-export async function getSessionUser(req: Request): Promise<SessionUser | null> {
+export async function getSessionUser(req: Request, allowUnverifiedEmail = false): Promise<SessionUser | null> {
   const token = tokenFromRequest(req);
   if (!token) return null;
 
@@ -189,7 +193,7 @@ export async function getSessionUser(req: Request): Promise<SessionUser | null> 
   const session = rows[0]?.session;
   if (!session) return null;
 
-  const user = await loadUserById(session.userId);
+  const user = await loadUserById(session.userId, allowUnverifiedEmail);
   if (!user) {
     // A suspended/deleted account must not regain access through an old cookie
     // if it is later restored. Revoke the session as soon as it is observed.
