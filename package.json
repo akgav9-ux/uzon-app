@@ -38,11 +38,14 @@
     "@types/pg": "8.18.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "drizzle-kit": "^0.30.5",
+    "drizzle-kit": "^0.31.11",
     "eslint": "9.39.4",
     "eslint-config-next": "16.4.6",
     "postcss": "^8.5.23",
     "tailwindcss": "4.1.17",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "@vercel/cli-config": "^0.3.8"
   }
 }
