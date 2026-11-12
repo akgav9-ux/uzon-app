@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { dictionaryFor, normalizeLocale } from "@/lib/i18n";
 import { formatRelative, intlLocale } from "@/lib/utils";
-import { settingsUpdateSchema } from "@/lib/validation";
+import { registerSchema, settingsUpdateSchema } from "@/lib/validation";
 import { authCodeEmail, resetEmail } from "@/lib/mailer";
 
 describe("canonical Uzbek locale", () => {
@@ -11,6 +11,22 @@ describe("canonical Uzbek locale", () => {
       expect(dictionaryFor(value)).toBe(dictionaryFor("uz"));
       expect(intlLocale(value)).toBe("uz");
     }
+  });
+
+  it("validates registration with either email or phone and requires legal consent", () => {
+    const base = {
+      username: "test_user",
+      displayName: "Test User",
+      password: "securepass123",
+      acceptedTerms: true as const,
+      documentVersion: "2026-11-12" as const,
+    };
+
+    expect(registerSchema.parse({ ...base, email: "test@example.com" }).email).toBe("test@example.com");
+    expect(registerSchema.parse({ ...base, phone: "+998901234567" }).phone).toBe("+998901234567");
+    expect(registerSchema.safeParse(base).success).toBe(false);
+    expect(registerSchema.safeParse({ ...base, email: "test@example.com", acceptedTerms: false }).success).toBe(false);
+    expect(registerSchema.parse({ ...base, email: "test@example.com", locale: "uz-Cyrl" }).locale).toBe("uz");
   });
 
   it("accepts legacy Uzbek values at the API boundary and stores canonical uz", () => {
