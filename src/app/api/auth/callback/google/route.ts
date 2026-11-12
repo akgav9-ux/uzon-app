@@ -96,6 +96,11 @@ export async function GET(req: Request) {
       });
     }
 
+    // Google confirms ownership of verified email addresses.
+    if (user && googleUser.verified_email === true && !user.emailVerified) {
+      await db.update(profiles).set({ emailVerified: true }).where(eq(profiles.id, user.id));
+    }
+
     // 4. Создаём сессию
     const token = await createSession(user.id, req);
 
