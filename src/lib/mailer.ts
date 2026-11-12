@@ -66,7 +66,7 @@ export function authCodeEmail(code: string, locale: string): { subject: string; 
     en: { subject: "Your UZON verification code", body: `Your verification code is <b>${code}</b>. It expires in 10 minutes.` },
     uz: { subject: "UZON tasdiqlash kodi", body: `Tasdiqlash kodingiz: <b>${code}</b>. 10 daqiqa amal qiladi.` },
   };
-  const language = locale === "uz-Latn" ? "uz" : locale;
+  const language = locale.startsWith("uz") ? "uz" : locale;
   const t = texts[language as keyof typeof texts] ?? texts.ru;
   return { subject: t.subject, html: `<div style="font-family:sans-serif">${t.body}</div>` };
 }
