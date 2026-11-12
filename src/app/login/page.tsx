@@ -13,6 +13,7 @@ import { LOCALES } from "@/lib/i18n";
 
 type SessionResponse = { user: { username: string } | null };
 type ConfigResponse = { demoMode: boolean; demoAccounts: { username: string; password: string; role: string; note: string | null }[] };
+type PendingVerification = { channel: string; destination: string; delivered: boolean; deliveryReason: string | null; devCode: string | null };
 
 function LoginInner() {
   const { t, setUser, refreshUser, toast, locale, setLocale } = useApp();
@@ -23,6 +24,8 @@ function LoginInner() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [verification, setVerification] = useState<PendingVerification | null>(null);
+  const [code, setCode] = useState("");
 
   const session = useQuery({ queryKey: ["me"], queryFn: () => get<SessionResponse>("/api/auth") });
   const config = useQuery({ queryKey: ["config"], queryFn: () => get<ConfigResponse>("/api/config") });
@@ -32,12 +35,54 @@ function LoginInner() {
     setBusy(true);
     setError(null);
     try {
-      const data = await postApi<{ user: never }>("/api/auth", { action: "login", identifier, password });
-      void data;
+      const data = await postApi<{ verificationRequired?: boolean; verification?: PendingVerification }>("/api/auth", { action: "login", identifier, password });
+      if (data.verificationRequired && data.verification) {
+        setVerification(data.verification);
+        return;
+      }
       await refreshUser();
       setUser((await get<SessionResponse>("/api/auth")).user as never);
       toast(t("auth.welcome"), "success");
       router.replace(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("common.error"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmEmail = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await postApi("/api/auth", { action: "verify", code });
+      await refreshUser();
+      const current = await get<SessionResponse>("/api/auth");
+      if (!current.user) throw new Error("Email verification did not complete. Please try again.");
+      setUser(current.user as never);
+      toast(t("auth.welcome"), "success");
+      router.replace(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("common.error"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resendEmailCode = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await postApi<{ delivered: boolean; reason: string | null; devCode: string | null }>("/api/auth", {
+        action: "resend",
+        channel: "email",
+      });
+      setVerification((current) => current ? {
+        ...current,
+        delivered: result.delivered,
+        deliveryReason: result.reason,
+        devCode: result.devCode,
+      } : current);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("common.error"));
     } finally {
@@ -73,7 +118,7 @@ function LoginInner() {
             </select>
           </div>
 
-          <form className="space-y-3" onSubmit={submit}>
+          {!verification && <form className="space-y-3" onSubmit={submit}>
             <Field label={`${t("auth.username")} / ${t("auth.email")} / ${t("auth.phone")}`} required>
               <Input
                 value={identifier}
@@ -90,18 +135,48 @@ function LoginInner() {
             <Button type="submit" className="w-full" size="lg" loading={busy}>
               {t("auth.login")}
             </Button>
-          </form>
+          </form>}
 
-          <div className="flex items-center justify-between text-xs">
+          {verification && (
+            <div className="space-y-3">
+              <p className="text-sm text-ink">
+                {t("auth.recoverSent")} email: <b>{verification.destination}</b>
+              </p>
+              {!verification.delivered && (
+                <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+                  <p>{t("auth.recoverDev")}</p>
+                  {verification.deliveryReason && <p className="mt-1">{verification.deliveryReason}</p>}
+                  {verification.devCode && <p className="mt-1 font-bold">{verification.devCode}</p>}
+                </div>
+              )}
+              <Field label={t("auth.recoverToken")}>
+                <Input
+                  value={code}
+                  onChange={(event) => setCode(event.target.value.replace(/\\D/g, "").slice(0, 6))}
+                  inputMode="numeric"
+                  placeholder="000000"
+                />
+              </Field>
+              {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+              <Button className="w-full" onClick={confirmEmail} loading={busy} disabled={code.length !== 6}>
+                {t("common.confirm")}
+              </Button>
+              <Button className="w-full" variant="secondary" onClick={resendEmailCode} loading={busy}>
+                {locale === "uz" ? "Kodni qayta yuborish" : locale === "en" ? "Resend code" : "Отправить код повторно"}
+              </Button>
+            </div>
+          )}
+
+          {!verification && <div className="flex items-center justify-between text-xs">
             <Link href="/recover" className="text-brand hover:underline">
               {t("auth.forgot")}
             </Link>
             <Link href="/register" className="text-muted hover:text-ink">
               {t("auth.noAccount")}
             </Link>
-          </div>
+          </div>}
 
-          {config.data?.demoMode && config.data.demoAccounts.length > 0 && (
+          {!verification && config.data?.demoMode && config.data.demoAccounts.length > 0 && (
             <div className="rounded-xl border border-line bg-surface2 p-3">
               <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-muted">
                 <ShieldCheck className="h-3.5 w-3.5 text-brand" />
