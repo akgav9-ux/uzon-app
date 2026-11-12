@@ -350,7 +350,7 @@ export default function RegisterPage() {
 
               <a
                 href={"/api/auth/google?accept=" + (acceptedTerms ? "1" : "0") + "&locale=" + encodeURIComponent(locale)}
-                className={"flex w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface py-2.5 text-sm font-medium text-ink transition hover:bg-surface2 " + (acceptedTerms ? "" : "pointer-events-none opacity-50")} aria-disabled={!acceptedTerms}
+                className={"flex w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface py-2.5 text-sm font-medium text-ink transition hover:bg-surface2 " + (acceptedTerms ? "" : "pointer-events-none opacity-50")} aria-disabled={!acceptedTerms} tabIndex={acceptedTerms ? 0 : -1}
               >
                 <svg className="h-4 w-4" viewBox="0 0 24 24">
                   <path
