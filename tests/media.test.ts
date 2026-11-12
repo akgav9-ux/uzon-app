@@ -4,7 +4,7 @@ import { avatarGradient, initials, parseCookies } from "@/lib/utils";
 
 describe("media url resolution", () => {
   it("builds a public storage URL for a local asset key", () => {
-    expect(mediaSrc({ key: "abc-123.mp4" })).toMatch(/^https:\/\/[^/]+\/abc-123\\.mp4$/);
+    expect(mediaSrc({ key: "abc-123.mp4" })).toMatch(/^https:\/\/[^/]+\/abc-123\.mp4$/);
   });
 
   it("uses the remote url for externally hosted demo assets", () => {
@@ -36,7 +36,7 @@ describe("serialisation helpers", () => {
       createdAt: new Date(0),
     };
     const out = serializeMedia(row as never)!;
-    expect(out.url).toMatch(/^https:\/\/[^/]+\/k\\.mp4$/);
+    expect(out.url).toMatch(/^https:\/\/[^/]+\/k\.mp4$/);
     expect(out.durationMs).toBe(5000);
     expect(serializeMedia(null)).toBeNull();
   });
@@ -54,7 +54,7 @@ describe("serialisation helpers", () => {
     });
     expect(Object.keys(out)).not.toContain("phone");
     expect(Object.keys(out)).not.toContain("email");
-    expect(out.avatarUrl).toMatch(/^https:\/\/[^/]+\/a\\.png$/);
+    expect(out.avatarUrl).toMatch(/^https:\/\/[^/]+\/a\.png$/);
   });
 });
 
