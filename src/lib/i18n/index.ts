@@ -8,9 +8,9 @@ export { en, ru, uz };
 export const dictionaries: Record<string, Dictionary> = { en, ru, "uz-Latn": uz };
 
 export const LOCALES = [
+  { code: "uz-Latn", label: "Oʻzbekcha", short: "UZ" },
   { code: "ru", label: "Русский", short: "RU" },
   { code: "en", label: "English", short: "EN" },
-  { code: "uz-Latn", label: "Oʻzbekcha (lotin)", short: "UZ" },
 ] as const;
 
 export function dictionaryFor(locale: string): Dictionary {
