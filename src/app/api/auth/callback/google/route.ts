@@ -60,7 +60,7 @@ export async function GET(req: Request) {
         if (acceptedFlag !== "1") return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/register?error=terms_required`);
         const baseUsername = googleUser.email.split("@")[0].replace(/[^a-z0-9_.]/g, "") || "user";
         const username = `${baseUsername}${Math.floor(Math.random() * 10000)}`;
-        const locale = ["uz-Latn", "ru", "en"].includes(consentLocale) ? consentLocale : "uz-Latn";
+        const locale = ["uz", "ru", "en"].includes(consentLocale) ? consentLocale : "uz";
         [user] = await db.transaction(async (tx) => {
           const [created] = await tx.insert(profiles).values({
             username,
@@ -86,7 +86,7 @@ export async function GET(req: Request) {
 
     // Record an explicit acceptance made on the registration screen even when Google links to an existing account.
     if (user && !createdNewUser && acceptedFlag === "1") {
-      const locale = ["uz-Latn", "ru", "en"].includes(consentLocale) ? consentLocale : "uz-Latn";
+      const locale = ["uz", "ru", "en"].includes(consentLocale) ? consentLocale : "uz";
       await db.insert(legalAcceptances).values({
         userId: user.id,
         documentVersion: "2026-11-12",
