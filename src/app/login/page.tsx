@@ -152,7 +152,7 @@ function LoginInner() {
               <Field label={t("auth.recoverToken")}>
                 <Input
                   value={code}
-                  onChange={(event) => setCode(event.target.value.replace(/\\D/g, "").slice(0, 6))}
+                  onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
                   inputMode="numeric"
                   placeholder="000000"
                 />
