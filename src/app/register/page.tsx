@@ -297,7 +297,6 @@ export default function RegisterPage() {
                 <Field
                   label={t("auth.password")}
                   required
-                  error={error}
                   hint={locale === "uz" ? "Kamida 8 ta belgi" : locale === "en" ? "At least 8 characters" : "Не менее 8 символов"}
                 >
                   <Input
