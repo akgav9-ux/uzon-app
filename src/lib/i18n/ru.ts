@@ -286,7 +286,7 @@ export const ru: Dictionary = {
   "notif.like": "{user} оценил(а) ваш {type}",
   "notif.comment": "{user} прокомментировал(а): {preview}",
   "notif.follow": "{user} подписался(ась) на вас",
-  "notif.message": "{user}: {preview}",
+  "notif.message": "Сообщение от {user}: {preview}",
   "notif.call": "{user} звонил(а) вам",
   "notif.missedCall": "Пропущенный звонок от {user}",
   "notif.processing": "Обработка видео завершена",
