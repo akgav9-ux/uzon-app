@@ -11,7 +11,7 @@ export type Locale = (typeof SUPPORTED_LOCALES)[number];
 /** BCP-47 tag used for Intl formatting. Legacy uz-Latn values map to uz. */
 export function intlLocale(locale: string): string {
   const normalized = locale === "uz-Latn" ? "uz" : locale;
-  return SUPPORTED_LOCALES.includes(normalized as Locale) ? normalized : "en";
+  return SUPPORTED_LOCALES.includes(normalized as Locale) ? normalized : "uz";
 }
 
 export function formatNumber(value: number, locale: string): string {
@@ -65,7 +65,8 @@ const RELATIVE: Record<string, { s: string; m: string; h: string; d: string }> =
 export function formatRelative(iso: string | Date, locale: string): string {
   const date = typeof iso === "string" ? new Date(iso) : iso;
   const diff = Date.now() - date.getTime();
-  const words = RELATIVE[locale === "uz-Latn" ? "uz" : locale] ?? RELATIVE.en;
+  const normalizedLocale = locale === "uz-Latn" || locale.startsWith("uz-") ? "uz" : locale;
+  const words = RELATIVE[normalizedLocale] ?? RELATIVE.uz;
   if (Number.isNaN(date.getTime())) return "";
   if (diff < 45_000) return words.s;
   if (diff < 3_600_000) return `${Math.round(diff / 60_000)} ${words.m}`;
