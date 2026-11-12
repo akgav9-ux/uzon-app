@@ -50,6 +50,7 @@ export async function GET(req: Request) {
 
     // 3. Ищем или создаём пользователя
     let [user] = await db.select().from(profiles).where(eq(profiles.googleId, googleUser.id)).limit(1);
+    let createdNewUser = false;
 
     if (!user) {
       [user] = await db.select().from(profiles).where(eq(profiles.email, googleUser.email)).limit(1);
@@ -66,6 +67,7 @@ export async function GET(req: Request) {
           googleId: googleUser.id,
           emailVerified: true,
         }).returning();
+        createdNewUser = true;
         const locale = ["uz-Latn", "ru", "en"].includes(consentLocale) ? consentLocale : "uz-Latn";
         await db.insert(legalAcceptances).values({
           userId: user.id,
@@ -77,6 +79,18 @@ export async function GET(req: Request) {
         await db.insert(userSettings).values({ userId: user.id, locale, theme: "system" });
         await db.insert(privacySettings).values({ userId: user.id });
       }
+    }
+
+    // Record an explicit acceptance made on the registration screen even when Google links to an existing account.
+    if (user && !createdNewUser && acceptedFlag === "1") {
+      const locale = ["uz-Latn", "ru", "en"].includes(consentLocale) ? consentLocale : "uz-Latn";
+      await db.insert(legalAcceptances).values({
+        userId: user.id,
+        documentVersion: "2026-11-12",
+        locale,
+        ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+        userAgent: req.headers.get("user-agent")?.slice(0, 500) ?? null,
+      });
     }
 
     // 4. Создаём сессию
