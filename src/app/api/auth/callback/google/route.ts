@@ -60,24 +60,27 @@ export async function GET(req: Request) {
         if (acceptedFlag !== "1") return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/register?error=terms_required`);
         const baseUsername = googleUser.email.split("@")[0].replace(/[^a-z0-9_.]/g, "") || "user";
         const username = `${baseUsername}${Math.floor(Math.random() * 10000)}`;
-        [user] = await db.insert(profiles).values({
-          username,
-          displayName: googleUser.name || googleUser.email,
-          email: googleUser.email,
-          googleId: googleUser.id,
-          emailVerified: true,
-        }).returning();
-        createdNewUser = true;
         const locale = ["uz-Latn", "ru", "en"].includes(consentLocale) ? consentLocale : "uz-Latn";
-        await db.insert(legalAcceptances).values({
-          userId: user.id,
-          documentVersion: "2026-11-12",
-          locale,
-          ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
-          userAgent: req.headers.get("user-agent")?.slice(0, 500) ?? null,
+        [user] = await db.transaction(async (tx) => {
+          const [created] = await tx.insert(profiles).values({
+            username,
+            displayName: googleUser.name || googleUser.email,
+            email: googleUser.email,
+            googleId: googleUser.id,
+            emailVerified: true,
+          }).returning();
+          await tx.insert(legalAcceptances).values({
+            userId: created.id,
+            documentVersion: "2026-11-12",
+            locale,
+            ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+            userAgent: req.headers.get("user-agent")?.slice(0, 500) ?? null,
+          });
+          await tx.insert(userSettings).values({ userId: created.id, locale, theme: "system" });
+          await tx.insert(privacySettings).values({ userId: created.id });
+          return [created];
         });
-        await db.insert(userSettings).values({ userId: user.id, locale, theme: "system" });
-        await db.insert(privacySettings).values({ userId: user.id });
+        createdNewUser = true;
       }
     }
 
