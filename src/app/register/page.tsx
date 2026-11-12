@@ -463,12 +463,6 @@ export default function RegisterPage() {
                   {t("common.retry")}
                 </Button>
 
-                <Button
-                  variant="ghost"
-                  onClick={() => router.replace("/home")}
-                >
-                  {t("common.next")}
-                </Button>
               </div>
             </>
           )}
