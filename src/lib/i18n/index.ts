@@ -14,8 +14,9 @@ export const LOCALES = [
 ] as const;
 
 export function normalizeLocale(locale: string): string {
-  if (locale === "uz-Latn" || locale.startsWith("uz-")) return "uz";
-  return locale === "ru" || locale === "en" ? locale : "uz";
+  const normalized = locale.toLowerCase();
+  if (normalized === "uz" || normalized.startsWith("uz-")) return "uz";
+  return normalized === "ru" || normalized === "en" ? normalized : "uz";
 }
 
 export function dictionaryFor(locale: string): Dictionary {
