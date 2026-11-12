@@ -1,6 +1,12 @@
+import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const accepted = url.searchParams.get("accept") === "1";
+  const requestedLocale = url.searchParams.get("locale") ?? "uz-Latn";
+  const locale = ["uz-Latn", "ru", "en"].includes(requestedLocale) ? requestedLocale : "uz-Latn";
+  const state = randomBytes(24).toString("hex");
   const rootUrl = "https://accounts.google.com/o/oauth2/v2/auth";
   const options = {
     redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback/google`,
@@ -8,11 +14,19 @@ export async function GET() {
     access_type: "offline",
     response_type: "code",
     prompt: "consent",
+    state,
     scope: [
       "https://www.googleapis.com/auth/userinfo.profile",
       "https://www.googleapis.com/auth/userinfo.email",
     ].join(" "),
   };
-  const qs = new URLSearchParams(options);
-  return NextResponse.redirect(`${rootUrl}?${qs.toString()}`);
+  const response = NextResponse.redirect(`${rootUrl}?${new URLSearchParams(options).toString()}`);
+  response.cookies.set("uzon_google_flow", `${state}.${accepted ? "1" : "0"}.${locale}`, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 10 * 60,
+  });
+  return response;
 }
