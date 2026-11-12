@@ -158,7 +158,7 @@ export async function POST(req: Request) {
         const destination = email ?? phone!;
         const { code, delivery } = await issueCode(userId, channel, destination, locale);
         const token = await createSession(userId, req);
-        const loaded = await loadUserById(userId);
+        const loaded = await loadUserById(userId, true);
         if (!loaded) throw new ApiError(500, "session_error", "Could not load the new account");
 
         return ok(
