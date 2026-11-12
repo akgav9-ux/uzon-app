@@ -4,8 +4,8 @@ import { NextResponse } from "next/server";
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const accepted = url.searchParams.get("accept") === "1";
-  const requestedLocale = url.searchParams.get("locale") ?? "uz-Latn";
-  const locale = ["uz-Latn", "ru", "en"].includes(requestedLocale) ? requestedLocale : "uz-Latn";
+  const requestedLocale = url.searchParams.get("locale") ?? "uz";
+  const locale = ["uz", "ru", "en"].includes(requestedLocale) ? requestedLocale : "uz";
   const state = randomBytes(24).toString("hex");
   const rootUrl = "https://accounts.google.com/o/oauth2/v2/auth";
   const options = {
