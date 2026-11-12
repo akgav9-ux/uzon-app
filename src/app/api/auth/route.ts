@@ -1,7 +1,7 @@
 import { mediaSrc } from "@/lib/media";
 import { and, eq, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { passwordResets, profiles, privacySettings, userSettings, verificationCodes } from "@/db/schema";
+import { passwordResets, profiles, privacySettings, userSettings, verificationCodes, legalAcceptances } from "@/db/schema";
 import {
   cookieHeader,
   createSession,
@@ -138,6 +138,13 @@ export async function POST(req: Request) {
           })
           .returning({ id: profiles.id });
         const userId = created!.id;
+        await db.insert(legalAcceptances).values({
+          userId,
+          documentVersion: body.documentVersion,
+          locale,
+          ip: clientIp(req),
+          userAgent: req.headers.get("user-agent")?.slice(0, 500) ?? null,
+        });
         await db.insert(userSettings).values({ userId, locale, theme: body.theme ?? "system" });
         await db.insert(privacySettings).values({ userId });
         await joinOfficialChannel(userId).catch(() => undefined);
