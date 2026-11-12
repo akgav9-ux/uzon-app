@@ -34,7 +34,7 @@ export function translate(locale: string, key: TranslationKey, vars?: Record<str
 }
 
 export function detectBrowserLocale(): string {
-  if (typeof navigator === "undefined") return "ru";
+  if (typeof navigator === "undefined") return "uz";
   const candidates = [...(navigator.languages ?? []), navigator.language];
   for (const candidate of candidates) {
     const lower = candidate.toLowerCase();
