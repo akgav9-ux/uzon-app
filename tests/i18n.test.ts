@@ -27,7 +27,8 @@ describe("dictionary coverage", () => {
   });
 
   it("falls back to English and then to the key", () => {
-    expect(dictionaryFor("fr")).toBe(en);
+    expect(dictionaryFor("fr")).toBe(dictionaries.uz);
+    expect(dictionaryFor("uz-Latn")).toBe(dictionaries.uz);
     expect(translate("ru", "nav.home")).toBe("Главная");
     expect(translate("uz", "nav.home")).toBe("Bosh sahifa");
     expect(translate("en", "nav.home")).toBe("Home");
@@ -62,7 +63,8 @@ describe("locale aware formatting", () => {
   it("formats numbers and relative times", () => {
     expect(formatFullNumber(12345, "en")).toBe("12,345");
     expect(intlLocale("uz")).toBe("uz");
-    expect(intlLocale("klingon")).toBe("en");
+    expect(intlLocale("klingon")).toBe("uz");
+    expect(intlLocale("uz-Latn")).toBe("uz");
     const now = new Date();
     expect(formatRelative(now, "ru")).toBe("только что");
     expect(formatRelative(new Date(Date.now() - 5 * 60_000), "en")).toContain("m ago");
