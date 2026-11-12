@@ -254,7 +254,13 @@ export default function RegisterPage() {
 
                 <Field
                   label={t("auth.email")}
-                  hint={t("auth.or")}
+                  hint={
+                    locale === "uz"
+                      ? "Email yoki telefon raqamidan birini kiriting"
+                      : locale === "en"
+                        ? "Enter either an email address or a phone number"
+                        : "Укажите email или номер телефона"
+                  }
                 >
                   <Input
                     type="email"
