@@ -41,7 +41,7 @@ describe("dictionary coverage", () => {
   });
 
   it("detects a browser locale", () => {
-    expect(detectBrowserLocale()).toMatch(/^(ru|en|uz-Latn)$/);
+    expect(detectBrowserLocale()).toMatch(/^(ru|en|uz)$/);
   });
 });
 
