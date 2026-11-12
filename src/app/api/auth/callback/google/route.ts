@@ -49,6 +49,11 @@ export async function GET(req: Request) {
       return NextResponse.redirect(`${appUrl}/login?error=google_no_email`);
     }
 
+    // Never create a session or link an existing account unless Google verifies email ownership.
+    if (googleUser.verified_email !== true) {
+      return NextResponse.redirect(`${appUrl}/login?error=google_email_unverified`);
+    }
+
     // 3. Ищем или создаём пользователя
     let [user] = await db.select().from(profiles).where(eq(profiles.googleId, googleUser.id)).limit(1);
     let createdNewUser = false;
