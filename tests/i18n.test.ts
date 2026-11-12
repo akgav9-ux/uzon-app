@@ -26,7 +26,7 @@ describe("dictionary coverage", () => {
     }
   });
 
-  it("falls back to English and then to the key", () => {
+  it("defaults unknown and legacy Uzbek locale values to Uzbek", () => {
     expect(dictionaryFor("fr")).toBe(dictionaries.uz);
     expect(dictionaryFor("uz-Latn")).toBe(dictionaries.uz);
     expect(translate("ru", "nav.home")).toBe("Главная");
