@@ -7,7 +7,7 @@ import { UserPlus, CheckCircle2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useApp } from "@/components/providers";
 import { UzonMark, UzonWordmark } from "@/components/logo";
-import { Badge, Button, Card, Field, Input } from "@/components/ui";
+import { Button, Card, Field, Input } from "@/components/ui";
 import { post as postApi } from "@/lib/client/api";
 import { LOCALES } from "@/lib/i18n";
 
@@ -28,7 +28,7 @@ export default function RegisterPage() {
 
   const [step, setStep] = useState<
     "language" | "form" | "verify" | "success"
-  >("language");
+  >("form");
 
   const [form, setForm] = useState({
     username: "",
@@ -194,7 +194,18 @@ export default function RegisterPage() {
                   {t("auth.register")}
                 </h1>
 
-                <Badge tone="brand">{locale}</Badge>
+                <select
+                  aria-label={t("auth.chooseLanguage")}
+                  value={locale}
+                  onChange={(event) => setLocale(event.target.value)}
+                  className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink"
+                >
+                  {LOCALES.map((item) => (
+                    <option key={item.code} value={item.code}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <form className="space-y-3" onSubmit={submit}>
@@ -336,12 +347,7 @@ export default function RegisterPage() {
               </a>
 
               <div className="mt-4 flex items-center justify-between text-xs">
-                <button
-                  onClick={() => setStep("language")}
-                  className="text-muted hover:text-ink"
-                >
-                  {t("auth.chooseLanguage")}
-                </button>
+                <span className="text-muted">{t("auth.welcome")}</span>
 
                 <Link
                   href="/login"
