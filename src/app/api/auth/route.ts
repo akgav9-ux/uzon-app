@@ -123,30 +123,35 @@ export async function POST(req: Request) {
           .limit(1);
         if (clash[0]) throw new ApiError(409, "identifier_taken", "That username, email or phone is already registered");
 
-        const locale = body.locale ?? "ru";
-        const [created] = await db
-          .insert(profiles)
-          .values({
-            username,
-            displayName: body.displayName.trim(),
-            email,
-            phone,
-            phoneCountry: body.phoneCountry ?? (phone?.startsWith("+998") ? "+998" : null),
-            passwordHash: hashPassword(body.password),
-            emailVerified: false,
-            phoneVerified: false,
-          })
-          .returning({ id: profiles.id });
-        const userId = created!.id;
-        await db.insert(legalAcceptances).values({
-          userId,
-          documentVersion: body.documentVersion,
-          locale,
-          ip: clientIp(req),
-          userAgent: req.headers.get("user-agent")?.slice(0, 500) ?? null,
+        const locale = body.locale ?? "uz-Latn";
+        // Create the account and its required consent/settings atomically.
+        // If any related insert fails, no incomplete profile is left behind.
+        const userId = await db.transaction(async (tx) => {
+          const [created] = await tx
+            .insert(profiles)
+            .values({
+              username,
+              displayName: body.displayName.trim(),
+              email,
+              phone,
+              phoneCountry: body.phoneCountry ?? (phone?.startsWith("+998") ? "+998" : null),
+              passwordHash: hashPassword(body.password),
+              emailVerified: false,
+              phoneVerified: false,
+            })
+            .returning({ id: profiles.id });
+          const id = created!.id;
+          await tx.insert(legalAcceptances).values({
+            userId: id,
+            documentVersion: body.documentVersion,
+            locale,
+            ip,
+            userAgent: req.headers.get("user-agent")?.slice(0, 500) ?? null,
+          });
+          await tx.insert(userSettings).values({ userId: id, locale, theme: body.theme ?? "system" });
+          await tx.insert(privacySettings).values({ userId: id });
+          return id;
         });
-        await db.insert(userSettings).values({ userId, locale, theme: body.theme ?? "system" });
-        await db.insert(privacySettings).values({ userId });
         await joinOfficialChannel(userId).catch(() => undefined);
 
         const channel: "email" | "phone" = email ? "email" : "phone";
