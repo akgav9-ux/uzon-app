@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { profiles, legalAcceptances } from "@/db/schema";
+import { profiles, legalAcceptances, userSettings, privacySettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { createSession, cookieHeader } from "@/lib/auth";
 
@@ -66,13 +66,16 @@ export async function GET(req: Request) {
           googleId: googleUser.id,
           emailVerified: true,
         }).returning();
+        const locale = ["uz-Latn", "ru", "en"].includes(consentLocale) ? consentLocale : "uz-Latn";
         await db.insert(legalAcceptances).values({
           userId: user.id,
           documentVersion: "2026-11-12",
-          locale: ["uz-Latn", "ru", "en"].includes(consentLocale) ? consentLocale : "uz-Latn",
+          locale,
           ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
           userAgent: req.headers.get("user-agent")?.slice(0, 500) ?? null,
         });
+        await db.insert(userSettings).values({ userId: user.id, locale, theme: "system" });
+        await db.insert(privacySettings).values({ userId: user.id });
       }
     }
 
