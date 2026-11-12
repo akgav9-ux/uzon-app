@@ -6,7 +6,7 @@ import { useApp } from "@/components/providers";
 type DocumentKey = "terms" | "privacy" | "community";
 type Section = { title: string; body: string };
 const content: Record<string, Record<DocumentKey, { title: string; intro: string; sections: Section[] }>> = {
-  "uz-Latn": {
+  "uz": {
     terms: { title: "UZON foydalanish shartlari", intro: "UZON — Oʻzbekistonda yaratilgan va dunyo foydalanuvchilari uchun ochiq ijtimoiy platforma. Roʻyxatdan oʻtish yoki xizmatdan foydalanish orqali ushbu shartlarni qabul qilasiz.", sections: [
       { title: "1. Yosh va akkaunt", body: "Platformadan foydalanish uchun kamida 13 yoshda boʻlishingiz yoki yashayotgan mamlakatingiz qonunlari talab qilgan yuqoriroq yoshga yetgan boʻlishingiz kerak. Voyaga yetmaganlar ota-ona yoki qonuniy vakil roziligi talab qilinadigan joylarda bunday rozilik bilan foydalanadi. Akkaunt maʼlumotlari toʻgʻri va xavfsiz saqlanishi kerak." },
       { title: "2. Xizmatlar", body: "UZON xabarlar, postlar, hikoyalar, kliplar, uzun videolar, kanallar, guruhlar va qoʻngʻiroqlarni taqdim etadi. Xizmatlar rivojlantirilishi, ayrim funksiyalar esa vaqtincha oʻzgartirilishi yoki toʻxtatilishi mumkin." },
@@ -94,7 +94,7 @@ const content: Record<string, Record<DocumentKey, { title: string; intro: string
 
 export function LegalDocument({ document }: { document: DocumentKey }) {
   const { locale } = useApp();
-  const language = content[locale] ? locale : "uz-Latn";
+  const language = content[locale] ? locale : locale.startsWith("uz-") ? "uz" : "uz";
   const doc = content[language][document];
   return (
     <main className="mx-auto min-h-dvh w-full max-w-3xl px-4 py-8 text-ink">
