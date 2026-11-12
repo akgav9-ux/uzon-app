@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { dictionaryFor, normalizeLocale } from "@/lib/i18n";
 import { formatRelative, intlLocale } from "@/lib/utils";
 import { settingsUpdateSchema } from "@/lib/validation";
+import { authCodeEmail, resetEmail } from "@/lib/mailer";
 
 describe("canonical Uzbek locale", () => {
   it("normalizes Uzbek variants and unknown values to uz", () => {
@@ -26,5 +27,10 @@ describe("canonical Uzbek locale", () => {
 
   it("formats legacy Uzbek values using Uzbek text", () => {
     expect(formatRelative(new Date(), "uz-Latn")).toBe("hozir");
+  });
+
+  it("uses Uzbek for verification and password-reset emails across Uzbek variants", () => {
+    expect(authCodeEmail("123456", "uz-Cyrl").subject).toBe("UZON tasdiqlash kodi");
+    expect(resetEmail("https://example.com/reset", "UZ-latn").subject).toBe("UZON parolini tiklash");
   });
 });
