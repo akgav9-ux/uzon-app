@@ -310,7 +310,7 @@ export default function RegisterPage() {
                 <div className="space-y-1.5">
                   <label className="flex items-start gap-2 text-xs text-ink">
                     <input type="checkbox" checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} required className="mt-0.5 h-4 w-4 accent-brand" />
-                    <span>{locale === "uz-Latn" ? "Tasdiqlayman va UZON shartlarini qabul qilaman" : locale === "en" ? "I confirm and accept UZON terms" : "Подтверждаю и принимаю условия UZON"}</span>
+                    <span>{locale === "uz-Latn" ? "Tasdiqlayman" : locale === "en" ? "I confirm" : "Подтверждаю"}</span>
                   </label>
                   <p className="pl-6 text-[11px] text-muted">
                     <Link href="/terms" className="text-brand hover:underline">{locale === "uz-Latn" ? "Foydalanish shartlari" : locale === "en" ? "Terms of Service" : "Пользовательское соглашение"}</Link>
