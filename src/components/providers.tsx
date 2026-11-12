@@ -117,8 +117,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
           const storedTheme = localStorage.getItem(THEME_KEY) as Theme | null;
 
           if (storedLocale) {
-            setLocaleState(normalizeLocale(storedLocale));
-      if (storedLocale !== normalizeLocale(storedLocale)) localStorage.setItem(LOCALE_KEY, normalizeLocale(storedLocale));
+            const normalizedLocale = normalizeLocale(storedLocale);
+            setLocaleState(normalizedLocale);
+            if (storedLocale !== normalizedLocale) localStorage.setItem(LOCALE_KEY, normalizedLocale);
           } else {
             setLocaleState(normalizeLocale(data.user.locale ?? "uz"));
           }
@@ -151,7 +152,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       localStorage.setItem(LOCALE_KEY, "uz");
       setLocaleState("uz");
     } else {
-      setLocaleState(storedLocale);
+      const normalizedLocale = normalizeLocale(storedLocale);
+      setLocaleState(normalizedLocale);
+      if (storedLocale !== normalizedLocale) localStorage.setItem(LOCALE_KEY, normalizedLocale);
     }
     if (storedTheme) setThemeState(storedTheme);
     setOnline(navigator.onLine);
