@@ -20,35 +20,70 @@ import {
 import { DEFAULT_CONFIG } from "@/lib/config";
 import { extractHashtags, slugifyChannel, slugifyUsername } from "@/lib/utils";
 
+const consent = {
+  acceptedTerms: true as const,
+  documentVersion: "2026-11-12" as const,
+};
+
 describe("register validation", () => {
   it("requires an email or a phone number", () => {
-    const parsed = registerSchema.safeParse({ username: "aziza", displayName: "Aziza", password: "supersecret1" });
+    const parsed = registerSchema.safeParse({
+      username: "aziza",
+      displayName: "Aziza",
+      password: "supersecret1",
+      ...consent,
+    });
     expect(parsed.success).toBe(false);
   });
 
-  it("accepts email registration", () => {
+  it("requires explicit legal consent", () => {
     const parsed = registerSchema.safeParse({
       username: "aziza",
       displayName: "Aziza",
       email: "aziza@example.com",
       password: "supersecret1",
+      documentVersion: "2026-11-12",
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("accepts email registration with legal consent", () => {
+    const parsed = registerSchema.safeParse({
+      username: "aziza",
+      displayName: "Aziza",
+      email: "aziza@example.com",
+      password: "supersecret1",
+      ...consent,
     });
     expect(parsed.success).toBe(true);
   });
 
-  it("accepts an international phone number", () => {
+  it("accepts an international phone number with legal consent", () => {
     const parsed = registerSchema.safeParse({
       username: "javohir",
       displayName: "Javohir",
       phone: "+998901234567",
       password: "supersecret1",
+      ...consent,
     });
     expect(parsed.success).toBe(true);
   });
 
   it("rejects weak passwords and impossible phone numbers", () => {
-    expect(registerSchema.safeParse({ username: "abc", displayName: "Abc", email: "a@b.co", password: "short" }).success).toBe(false);
-    expect(registerSchema.safeParse({ username: "abc", displayName: "Abc", phone: "12", password: "supersecret1" }).success).toBe(false);
+    expect(registerSchema.safeParse({
+      username: "abc",
+      displayName: "Abc",
+      email: "a@b.co",
+      password: "short",
+      ...consent,
+    }).success).toBe(false);
+    expect(registerSchema.safeParse({
+      username: "abc",
+      displayName: "Abc",
+      phone: "12",
+      password: "supersecret1",
+      ...consent,
+    }).success).toBe(false);
   });
 
   it("does not accept arbitrary login codes", () => {
@@ -103,7 +138,7 @@ describe("content schemas", () => {
     expect(reportSchema.safeParse({ entityType: "planet", entityId: id, reason: "copyright" }).success).toBe(false);
     expect(profileUpdateSchema.safeParse({ bio: "x".repeat(500) }).success).toBe(false);
     expect(settingsUpdateSchema.safeParse({ theme: "system", locale: "uz-Latn" }).success).toBe(true);
-    expect(settingsUpdateSchema.safeParse({ locale: "uz-Cyrl" }).success).toBe(false);
+    expect(settingsUpdateSchema.parse({ locale: "uz-Cyrl" }).locale).toBe("uz");
     expect(recoverResetSchema.safeParse({ token: "abcdefghij", password: "supersecret1" }).success).toBe(true);
   });
 
