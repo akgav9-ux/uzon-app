@@ -7,6 +7,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "test:locale": "vitest run tests/locale-normalization.test.ts",
     "db:push": "drizzle-kit push --config=drizzle.config.ts",
     "grant-admin": "node src/scripts/grant-admin.mjs",
