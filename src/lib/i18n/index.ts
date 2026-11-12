@@ -5,16 +5,21 @@ import { uz } from "./uz";
 export type { Dictionary, TranslationKey };
 export { en, ru, uz };
 
-export const dictionaries: Record<string, Dictionary> = { en, ru, "uz-Latn": uz };
+export const dictionaries: Record<string, Dictionary> = { en, ru, uz };
 
 export const LOCALES = [
-  { code: "uz-Latn", label: "Oʻzbekcha", short: "UZ" },
+  { code: "uz", label: "Oʻzbekcha", short: "UZ" },
   { code: "ru", label: "Русский", short: "RU" },
   { code: "en", label: "English", short: "EN" },
 ] as const;
 
+export function normalizeLocale(locale: string): string {
+  if (locale === "uz-Latn" || locale.startsWith("uz-")) return "uz";
+  return locale === "ru" || locale === "en" ? locale : "uz";
+}
+
 export function dictionaryFor(locale: string): Dictionary {
-  return dictionaries[locale] ?? en;
+  return dictionaries[normalizeLocale(locale)] ?? en;
 }
 
 /**
@@ -33,7 +38,7 @@ export function detectBrowserLocale(): string {
   const candidates = [...(navigator.languages ?? []), navigator.language];
   for (const candidate of candidates) {
     const lower = candidate.toLowerCase();
-    if (lower.startsWith("uz")) return "uz-Latn";
+    if (lower.startsWith("uz")) return "uz";
     if (lower.startsWith("ru")) return "ru";
     if (lower.startsWith("en")) return "en";
   }
