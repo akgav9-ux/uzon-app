@@ -94,7 +94,7 @@ const content: Record<string, Record<DocumentKey, { title: string; intro: string
 
 export function LegalDocument({ document }: { document: DocumentKey }) {
   const { locale } = useApp();
-  const language = content[locale] ? locale : locale.startsWith("uz-") ? "uz" : "uz";
+  const language = locale === "ru" || locale === "en" ? locale : "uz";
   const doc = content[language][document];
   return (
     <main className="mx-auto min-h-dvh w-full max-w-3xl px-4 py-8 text-ink">
