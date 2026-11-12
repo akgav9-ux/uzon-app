@@ -40,6 +40,7 @@ export default function RegisterPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [verification, setVerification] =
     useState<RegisterResponse["verification"] | null>(null);
   const [code, setCode] = useState("");
@@ -91,6 +92,8 @@ export default function RegisterPage() {
         password: form.password,
         locale,
         theme,
+        acceptedTerms: true,
+        documentVersion: "2026-11-12",
       });
 
       setVerification(data.verification);
@@ -304,11 +307,26 @@ export default function RegisterPage() {
                   />
                 </Field>
 
+                <div className="space-y-1.5">
+                  <label className="flex items-start gap-2 text-xs text-ink">
+                    <input type="checkbox" checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} required className="mt-0.5 h-4 w-4 accent-brand" />
+                    <span>{locale === "uz-Latn" ? "Tasdiqlayman va UZON shartlarini qabul qilaman" : locale === "en" ? "I confirm and accept UZON terms" : "Подтверждаю и принимаю условия UZON"}</span>
+                  </label>
+                  <p className="pl-6 text-[11px] text-muted">
+                    <Link href="/terms" className="text-brand hover:underline">{locale === "uz-Latn" ? "Foydalanish shartlari" : locale === "en" ? "Terms of Service" : "Пользовательское соглашение"}</Link>
+                    {" · "}
+                    <Link href="/privacy" className="text-brand hover:underline">{locale === "uz-Latn" ? "Maxfiylik siyosati" : locale === "en" ? "Privacy Policy" : "Политика конфиденциальности"}</Link>
+                    {" · "}
+                    <Link href="/community-guidelines" className="text-brand hover:underline">{locale === "uz-Latn" ? "Hamjamiyat qoidalari" : locale === "en" ? "Community Rules" : "Правила сообщества"}</Link>
+                  </p>
+                </div>
+
                 <Button
                   type="submit"
                   className="w-full"
                   size="lg"
                   loading={busy}
+                  disabled={!acceptedTerms}
                 >
                   {t("auth.register")}
                 </Button>
@@ -322,8 +340,8 @@ export default function RegisterPage() {
               </div>
 
               <a
-                href="/api/auth/google"
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface py-2.5 text-sm font-medium text-ink transition hover:bg-surface2"
+                href={"/api/auth/google?accept=" + (acceptedTerms ? "1" : "0") + "&locale=" + encodeURIComponent(locale)}
+                className={"flex w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface py-2.5 text-sm font-medium text-ink transition hover:bg-surface2 " + (acceptedTerms ? "" : "pointer-events-none opacity-50")} aria-disabled={!acceptedTerms}
               >
                 <svg className="h-4 w-4" viewBox="0 0 24 24">
                   <path
@@ -357,9 +375,6 @@ export default function RegisterPage() {
                 </Link>
               </div>
 
-              <p className="text-[11px] text-muted">
-                {t("auth.terms")}
-              </p>
             </>
           )}
 
