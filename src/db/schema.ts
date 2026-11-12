@@ -57,6 +57,20 @@ export const profiles = pgTable(
   ],
 );
 
+export const legalAcceptances = pgTable(
+  "legal_acceptances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+    documentVersion: text("document_version").notNull(),
+    locale: text("locale").notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+  },
+  (t) => [index("legal_acceptances_user_idx").on(t.userId)],
+);
+
 export const userSettings = pgTable("user_settings", {
   userId: uuid("user_id")
     .primaryKey()
