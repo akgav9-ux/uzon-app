@@ -123,7 +123,7 @@ export async function POST(req: Request) {
           .limit(1);
         if (clash[0]) throw new ApiError(409, "identifier_taken", "That username, email or phone is already registered");
 
-        const locale = body.locale ?? "uz";
+        const locale = body.locale === "uz-Latn" ? "uz" : body.locale ?? "uz";
         // Create the account and its required consent/settings atomically.
         // If any related insert fails, no incomplete profile is left behind.
         const userId = await db.transaction(async (tx) => {
@@ -269,7 +269,7 @@ export async function POST(req: Request) {
             .select({ locale: userSettings.locale })
             .from(userSettings)
             .where(eq(userSettings.userId, row.id))
-            .limit(1))[0]?.locale ?? "ru";
+            .limit(1))[0]?.locale ?? "uz";
         const { code, delivery } = await issueCode(row.id, "email", email, locale);
         return ok({
           sent: true,
@@ -338,7 +338,7 @@ export async function POST(req: Request) {
             .select({ locale: userSettings.locale })
             .from(userSettings)
             .where(eq(userSettings.userId, row.id))
-            .limit(1))[0]?.locale ?? "ru";
+            .limit(1))[0]?.locale ?? "uz";
         const delivery = row.email
           ? await sendEmail(row.email, resetEmail(link, locale).subject, resetEmail(link, locale).html)
           : await sendSms(row.phone ?? "", link);
