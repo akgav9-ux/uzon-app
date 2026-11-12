@@ -7,9 +7,10 @@ export async function GET(req: Request) {
   const requestedLocale = url.searchParams.get("locale") ?? "uz";
   const locale = ["uz", "ru", "en"].includes(requestedLocale) ? requestedLocale : "uz";
   const state = randomBytes(24).toString("hex");
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || url.origin).replace(/\/+$/, "");
   const rootUrl = "https://accounts.google.com/o/oauth2/v2/auth";
   const options = {
-    redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback/google`,
+    redirect_uri: `${appUrl}/api/auth/callback/google`,
     client_id: process.env.GOOGLE_CLIENT_ID!,
     access_type: "offline",
     response_type: "code",
