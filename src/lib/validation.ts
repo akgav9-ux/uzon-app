@@ -19,7 +19,7 @@ export const registerSchema = z
     locale: z.enum(SUPPORTED_LOCALES).optional(),
     theme: z.enum(["dark", "light", "system"]).optional(),
     acceptedTerms: z.literal(true),
-    documentVersion: z.string().min(1).max(40),
+    documentVersion: z.literal("2026-11-12"),
   })
   .refine((v) => Boolean(v.email) || Boolean(v.phone), {
     message: "Provide an email address or a phone number",
