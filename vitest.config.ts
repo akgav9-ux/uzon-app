@@ -8,6 +8,7 @@ export default defineConfig({
     },
   },
   test: {
+    // Preserve Vitest 3 mock-history behavior after the v5 security upgrade.
     clearMocks: false,
     environment: "node",
     include: ["tests/**/*.test.ts"],
