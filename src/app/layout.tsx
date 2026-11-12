@@ -1,4 +1,3 @@
-
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
@@ -40,7 +39,7 @@ export default function RootLayout({
   children: ReactNode;
 }) {
   return (
-    <html lang="ru" data-theme="dark" suppressHydrationWarning>
+    <html lang="uz-Latn" data-theme="dark" suppressHydrationWarning>
       <body className="min-h-dvh bg-canvas text-ink antialiased">
         <AppProviders>{children}</AppProviders>
         <PwaRegister />
