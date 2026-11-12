@@ -6,14 +6,15 @@ import { createSession, cookieHeader } from "@/lib/auth";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || url.origin).replace(/\/+$/, "");
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const cookieHeaderValue = req.headers.get("cookie") ?? "";
   const flowCookie = cookieHeaderValue.split(";").map((part) => part.trim()).find((part) => part.startsWith("uzon_google_flow="))?.slice("uzon_google_flow=".length);
   const [savedState, acceptedFlag, consentLocale] = decodeURIComponent(flowCookie ?? "").split(".");
 
-  if (!code) return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/login?error=no_code`);
-  if (!state || !savedState || state !== savedState) return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/register?error=google_state`);
+  if (!code) return NextResponse.redirect(`${appUrl}/login?error=no_code`);
+  if (!state || !savedState || state !== savedState) return NextResponse.redirect(`${appUrl}/register?error=google_state`);
 
   try {
     // 1. Меняем код на access_token
@@ -24,7 +25,7 @@ export async function GET(req: Request) {
         code,
         client_id: process.env.GOOGLE_CLIENT_ID!,
         client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-        redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback/google`,
+        redirect_uri: `${appUrl}/api/auth/callback/google`,
         grant_type: "authorization_code",
       }),
     });
@@ -34,7 +35,7 @@ export async function GET(req: Request) {
 
     if (!access_token) {
       console.error("GOOGLE TOKEN ERROR:", tokenData);
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/login?error=no_access_token`);
+      return NextResponse.redirect(`${appUrl}/login?error=no_access_token`);
     }
 
     // 2. Получаем данные пользователя
@@ -45,7 +46,7 @@ export async function GET(req: Request) {
 
     if (!googleUser?.email || !googleUser?.id) {
       console.error("GOOGLE USER MISSING DATA:", googleUser);
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/login?error=google_no_email`);
+      return NextResponse.redirect(`${appUrl}/login?error=google_no_email`);
     }
 
     // 3. Ищем или создаём пользователя
@@ -57,7 +58,7 @@ export async function GET(req: Request) {
       if (user) {
         await db.update(profiles).set({ googleId: googleUser.id }).where(eq(profiles.id, user.id));
       } else {
-        if (acceptedFlag !== "1") return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/register?error=terms_required`);
+        if (acceptedFlag !== "1") return NextResponse.redirect(`${appUrl}/register?error=terms_required`);
         const baseUsername = googleUser.email.split("@")[0].replace(/[^a-z0-9_.]/g, "") || "user";
         const username = `${baseUsername}${Math.floor(Math.random() * 10000)}`;
         const locale = ["uz", "ru", "en"].includes(consentLocale) ? consentLocale : "uz";
@@ -112,11 +113,11 @@ export async function GET(req: Request) {
         <head>
           <meta charset="utf-8" />
           <title>Вход...</title>
-          <meta http-equiv="refresh" content="0; url=${process.env.NEXT_PUBLIC_APP_URL}/home?auth=success" />
+          <meta http-equiv="refresh" content="0; url=${appUrl}/home?auth=success" />
         </head>
         <body>
-          <p>Входим... <a href="${process.env.NEXT_PUBLIC_APP_URL}/home?auth=success">Нажмите, если не перенаправило</a></p>
-          <script>window.location.href = "${process.env.NEXT_PUBLIC_APP_URL}/home?auth=success";</script>
+          <p>Входим... <a href="${appUrl}/home?auth=success">Нажмите, если не перенаправило</a></p>
+          <script>window.location.href = "${appUrl}/home?auth=success";</script>
         </body>
       </html>
     `;
@@ -135,6 +136,6 @@ export async function GET(req: Request) {
   } catch (error) {
     console.error("GOOGLE AUTH ERROR:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/login?error=${encodeURIComponent(message)}`);
+    return NextResponse.redirect(`${appUrl}/login?error=${encodeURIComponent(message)}`);
   }
 }
