@@ -54,7 +54,7 @@ export const profileUpdateSchema = z.object({
 
 export const settingsUpdateSchema = z.object({
   theme: z.enum(["dark", "light", "system"]).optional(),
-  locale: z.enum(SUPPORTED_LOCALES).optional(),
+  locale: localeSchema.optional(),
   autoplay: z.boolean().optional(),
   dataSaver: z.boolean().optional(),
   notifications: z.record(z.string(), z.boolean()).optional(),
