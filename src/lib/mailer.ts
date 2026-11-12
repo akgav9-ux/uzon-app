@@ -66,7 +66,8 @@ export function authCodeEmail(code: string, locale: string): { subject: string; 
     en: { subject: "Your UZON verification code", body: `Your verification code is <b>${code}</b>. It expires in 10 minutes.` },
     uz: { subject: "UZON tasdiqlash kodi", body: `Tasdiqlash kodingiz: <b>${code}</b>. 10 daqiqa amal qiladi.` },
   };
-  const t = texts[locale as keyof typeof texts] ?? texts.ru;
+  const language = locale === "uz-Latn" ? "uz" : locale;
+  const t = texts[language as keyof typeof texts] ?? texts.ru;
   return { subject: t.subject, html: `<div style="font-family:sans-serif">${t.body}</div>` };
 }
 
@@ -80,6 +81,7 @@ export function resetEmail(link: string, locale: string): { subject: string; htm
     en: { subject: "Reset your UZON password", body: `Reset link: <a href="${link}">${link}</a>` },
     uz: { subject: "UZON parolini tiklash", body: `Tiklash havolasi: <a href="${link}">${link}</a>` },
   };
-  const t = texts[locale as keyof typeof texts] ?? texts.ru;
+  const language = locale === "uz-Latn" ? "uz" : locale;
+  const t = texts[language as keyof typeof texts] ?? texts.ru;
   return { subject: t.subject, html: `<div style="font-family:sans-serif">${t.body}</div>` };
 }
