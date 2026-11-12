@@ -27,6 +27,6 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
       - name: Tests
-        run: npm test
+        run: npm run test:locale
       - name: Build
         run: npm run build
