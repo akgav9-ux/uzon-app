@@ -42,5 +42,5 @@ export function detectBrowserLocale(): string {
     if (lower.startsWith("ru")) return "ru";
     if (lower.startsWith("en")) return "en";
   }
-  return "ru";
+  return "uz";
 }
