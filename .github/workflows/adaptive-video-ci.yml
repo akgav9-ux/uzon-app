@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [feature/video-hls-adaptive]
+    branches: [feature/video-hls-adaptive, feature/registration-simplification]
 
 permissions:
   contents: read
@@ -27,6 +27,6 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
       - name: Tests
-        run: npm run test:locale
+        run: npm test
       - name: Build
         run: npm run build
