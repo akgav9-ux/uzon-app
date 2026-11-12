@@ -1,14 +1,19 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { profiles } from "@/db/schema";
+import { profiles, legalAcceptances } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { createSession, cookieHeader } from "@/lib/auth";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  const cookieHeaderValue = req.headers.get("cookie") ?? "";
+  const flowCookie = cookieHeaderValue.split(";").map((part) => part.trim()).find((part) => part.startsWith("uzon_google_flow="))?.slice("uzon_google_flow=".length);
+  const [savedState, acceptedFlag, consentLocale] = decodeURIComponent(flowCookie ?? "").split(".");
 
   if (!code) return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/login?error=no_code`);
+  if (!state || !savedState || state !== savedState) return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/register?error=google_state`);
 
   try {
     // 1. Меняем код на access_token
@@ -51,6 +56,7 @@ export async function GET(req: Request) {
       if (user) {
         await db.update(profiles).set({ googleId: googleUser.id }).where(eq(profiles.id, user.id));
       } else {
+        if (acceptedFlag !== "1") return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/register?error=terms_required`);
         const baseUsername = googleUser.email.split("@")[0].replace(/[^a-z0-9_.]/g, "") || "user";
         const username = `${baseUsername}${Math.floor(Math.random() * 10000)}`;
         [user] = await db.insert(profiles).values({
@@ -60,6 +66,13 @@ export async function GET(req: Request) {
           googleId: googleUser.id,
           emailVerified: true,
         }).returning();
+        await db.insert(legalAcceptances).values({
+          userId: user.id,
+          documentVersion: "2026-11-12",
+          locale: ["uz-Latn", "ru", "en"].includes(consentLocale) ? consentLocale : "uz-Latn",
+          ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+          userAgent: req.headers.get("user-agent")?.slice(0, 500) ?? null,
+        });
       }
     }
 
@@ -91,6 +104,7 @@ export async function GET(req: Request) {
       },
     });
 
+    res.cookies.delete("uzon_google_flow");
     return res;
 
   } catch (error) {
