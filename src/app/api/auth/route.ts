@@ -201,6 +201,30 @@ export async function POST(req: Request) {
         }
         assertAccountCanAuthenticate(row.status);
 
+        if (row.email && !row.emailVerified) {
+          const locale =
+            (await db
+              .select({ locale: userSettings.locale })
+              .from(userSettings)
+              .where(eq(userSettings.userId, row.id))
+              .limit(1))[0]?.locale ?? "uz";
+          const { code, delivery } = await issueCode(row.id, "email", row.email, locale);
+          const token = await createSession(row.id, req);
+          return ok(
+            {
+              verificationRequired: true,
+              verification: {
+                channel: "email",
+                destination: row.email.replace(/(^..).*(@)/, "$1***$2"),
+                delivered: delivery.delivered,
+                deliveryReason: delivery.reason ?? null,
+                devCode: !delivery.delivered && config.demoMode ? code : null,
+              },
+            },
+            { headers: { "Set-Cookie": cookieHeader(token, SESSION_SECONDS) } },
+          );
+        }
+
         const token = await createSession(row.id, req);
         const user = await loadUserById(row.id);
         if (!user) throw new ApiError(403, "account_unavailable", "This account is not available");
@@ -214,7 +238,7 @@ export async function POST(req: Request) {
       }
 
       case "resend": {
-        const user = await getSessionUser(req);
+        const user = await getSessionUser(req, true);
         if (!user) throw new ApiError(401, "unauthenticated");
         await rateLimit(`resend:${user.id}`, 5, 600);
         const channel = body.channel ?? (user.email ? "email" : "phone");
@@ -229,7 +253,7 @@ export async function POST(req: Request) {
       }
 
       case "verify": {
-        const user = await getSessionUser(req);
+        const user = await getSessionUser(req, true);
         if (!user) throw new ApiError(401, "unauthenticated");
         await rateLimit(`verify:${user.id}`, 10, 600);
         const [record] = await db
