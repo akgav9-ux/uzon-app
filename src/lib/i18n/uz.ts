@@ -287,7 +287,7 @@ export const uz: Dictionary = {
   "notif.like": "{user} sizning {type} ni yoqtirdi",
   "notif.comment": "{user} izoh qoldirdi: {preview}",
   "notif.follow": "{user} sizga obuna boʻldi",
-  "notif.message": "{user}: {preview}",
+  "notif.message": "{user}dan xabar: {preview}",
   "notif.call": "{user} sizga qoʻngʻiroq qildi",
   "notif.missedCall": "{user} dan oʻtkazib yuborilgan qoʻngʻiroq",
   "notif.processing": "Videoni qayta ishlash tugadi",
