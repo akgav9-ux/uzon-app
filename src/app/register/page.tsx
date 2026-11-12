@@ -215,7 +215,7 @@ export default function RegisterPage() {
                 <Field
                   label={t("auth.username")}
                   required
-                  hint="a-z, 0-9, _ (3–30)"
+                  hint={locale === "uz" ? "Lotin harflari, raqamlar, _ yoki . (3–30)" : locale === "en" ? "Letters, numbers, _ or . (3–30)" : "Латинские буквы, цифры, _ или . (3–30)"}
                 >
                   <Input
                     value={form.username}
@@ -230,7 +230,7 @@ export default function RegisterPage() {
                     required
                     minLength={3}
                     maxLength={30}
-                    invalid={Boolean(error)}
+                    autoComplete="username"
                   />
                 </Field>
 
@@ -249,6 +249,7 @@ export default function RegisterPage() {
                     required
                     minLength={2}
                     maxLength={60}
+                    autoComplete="name"
                   />
                 </Field>
 
@@ -289,6 +290,7 @@ export default function RegisterPage() {
                     }
                     placeholder="+998901234567"
                     inputMode="tel"
+                    autoComplete="tel"
                   />
                 </Field>
 
@@ -296,7 +298,7 @@ export default function RegisterPage() {
                   label={t("auth.password")}
                   required
                   error={error}
-                  hint="min 8"
+                  hint={locale === "uz" ? "Kamida 8 ta belgi" : locale === "en" ? "At least 8 characters" : "Не менее 8 символов"}
                 >
                   <Input
                     type="password"
@@ -326,6 +328,8 @@ export default function RegisterPage() {
                     <Link href="/community-guidelines" className="text-brand hover:underline">{locale === "uz" ? "Hamjamiyat qoidalari" : locale === "en" ? "Community Rules" : "Правила сообщества"}</Link>
                   </p>
                 </div>
+
+                {error && <p role="alert" className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">{error}</p>}
 
                 <Button
                   type="submit"
