@@ -39,7 +39,7 @@ export default function RootLayout({
   children: ReactNode;
 }) {
   return (
-    <html lang="uz-Latn" data-theme="dark" suppressHydrationWarning>
+    <html lang="uz" data-theme="dark" suppressHydrationWarning>
       <body className="min-h-dvh bg-canvas text-ink antialiased">
         <AppProviders>{children}</AppProviders>
         <PwaRegister />
