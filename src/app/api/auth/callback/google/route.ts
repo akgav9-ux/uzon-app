@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { profiles } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { createSession, cookieHeader } from "@/lib/auth";
+import { createSession, SESSION_COOKIE } from "@/lib/auth";
 
 const STATE_COOKIE = "uzon_google_oauth_state";
 
@@ -93,9 +93,21 @@ export async function GET(req: Request) {
       }
     }
 
+    if (!user || user.status !== "active") {
+      const response = NextResponse.redirect(new URL("/login?error=account_unavailable", appUrl));
+      response.cookies.set(clearStateCookie());
+      return response;
+    }
+
     const token = await createSession(user.id, req);
     const response = NextResponse.redirect(new URL("/home?auth=success", appUrl));
-    response.headers.append("Set-Cookie", cookieHeader(token, 30 * 24 * 60 * 60));
+    response.cookies.set(SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 30 * 24 * 60 * 60,
+    });
     response.cookies.set(clearStateCookie());
     return response;
   } catch (error) {
