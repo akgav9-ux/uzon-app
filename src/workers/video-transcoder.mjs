@@ -157,6 +157,8 @@ async function uploadTree(localDir, prefix) {
         Body: body,
         ContentLength: body.length,
         ContentType: mime,
+        // Match VIDEO_WORKER.md: generated HLS objects are publicly readable.
+        ACL: "public-read",
         CacheControl: entry.name.endsWith(".m3u8")
           ? "public, max-age=60"
           : "public, max-age=31536000, immutable",
@@ -200,7 +202,13 @@ async function transcode(job) {
     const heights = [360, 480, 720, 1080].filter((height) => height <= sourceHeight);
     if (!heights.length) heights.push(sourceHeight);
     const variants = [];
-    for (const height of heights) {
+    for (let index = 0; index < heights.length; index += 1) {
+      const height = heights[index];
+      const progress = 10 + Math.round((index / heights.length) * 65);
+      await pool.query(
+        "UPDATE video_jobs SET stage = 'transcode', progress = $2, updated_at = now() WHERE id = $1 AND status = 'processing'",
+        [job.job_id, progress],
+      );
       const name = `${height}p`;
       const folder = path.join(output, name);
       await mkdir(folder, { recursive: true });
