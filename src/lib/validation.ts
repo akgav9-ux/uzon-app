@@ -3,6 +3,10 @@ import { SUPPORTED_LOCALES, slugifyChannel, slugifyUsername } from "@/lib/utils"
 
 export const audienceSchema = z.enum(["public", "followers", "contacts", "private"]);
 export const privacyRuleSchema = z.enum(["everyone", "followers", "contacts", "selected", "nobody"]);
+const localeSchema = z.preprocess(
+  (value) => typeof value === "string" && value.toLowerCase().startsWith("uz-") ? "uz" : value,
+  z.enum(SUPPORTED_LOCALES),
+);
 
 export const registerSchema = z
   .object({
@@ -16,8 +20,10 @@ export const registerSchema = z
       .or(z.literal("")),
     phoneCountry: z.string().max(4).optional(),
     password: z.string().min(8).max(128),
-    locale: z.enum(SUPPORTED_LOCALES).optional(),
+    locale: localeSchema.optional(),
     theme: z.enum(["dark", "light", "system"]).optional(),
+    acceptedTerms: z.literal(true),
+    documentVersion: z.literal("2026-11-12"),
   })
   .refine((v) => Boolean(v.email) || Boolean(v.phone), {
     message: "Provide an email address or a phone number",
@@ -48,7 +54,7 @@ export const profileUpdateSchema = z.object({
 
 export const settingsUpdateSchema = z.object({
   theme: z.enum(["dark", "light", "system"]).optional(),
-  locale: z.enum(SUPPORTED_LOCALES).optional(),
+  locale: localeSchema.optional(),
   autoplay: z.boolean().optional(),
   dataSaver: z.boolean().optional(),
   notifications: z.record(z.string(), z.boolean()).optional(),

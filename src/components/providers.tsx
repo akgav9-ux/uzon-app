@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { dictionaryFor, detectBrowserLocale, translate, type TranslationKey } from "@/lib/i18n";
+import { dictionaryFor, normalizeLocale, translate, type TranslationKey } from "@/lib/i18n";
 import { formatBytes, formatDate, formatDuration, formatNumber, formatRelative, formatTime } from "@/lib/utils";
 
 export type Theme = "dark" | "light" | "system";
@@ -82,7 +82,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [theme, setThemeState] = useState<Theme>("dark");
-  const [locale, setLocaleState] = useState<string>("ru");
+  const [locale, setLocaleState] = useState<string>("uz");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [online, setOnline] = useState(true);
 
@@ -93,13 +93,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }, []);
 
   const setLocale = useCallback((newLocale: string) => {
-    setLocaleState(newLocale);
-    localStorage.setItem(LOCALE_KEY, newLocale);
+    const normalizedLocale = normalizeLocale(newLocale);
+    setLocaleState(normalizedLocale);
+    localStorage.setItem(LOCALE_KEY, normalizedLocale);
     // Обновляем на сервере (если авторизован)
     fetch("/api/account", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scope: "settings", locale: newLocale }),
+      body: JSON.stringify({ scope: "settings", locale: normalizedLocale }),
     }).catch(() => undefined);
   }, []);
 
@@ -116,9 +117,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
           const storedTheme = localStorage.getItem(THEME_KEY) as Theme | null;
 
           if (storedLocale) {
-            setLocaleState(storedLocale);
+            const normalizedLocale = normalizeLocale(storedLocale);
+            setLocaleState(normalizedLocale);
+            if (storedLocale !== normalizedLocale) localStorage.setItem(LOCALE_KEY, normalizedLocale);
           } else {
-            setLocaleState(data.user.locale ?? "ru");
+            setLocaleState(normalizeLocale(data.user.locale ?? "uz"));
           }
 
           if (storedTheme) {
@@ -146,11 +149,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const storedTheme = localStorage.getItem(THEME_KEY) as Theme | null;
     const storedLocale = localStorage.getItem(LOCALE_KEY);
     if (!storedLocale) {
-      const detected = detectBrowserLocale();
-      localStorage.setItem(LOCALE_KEY, detected);
-      setLocaleState(detected);
+      localStorage.setItem(LOCALE_KEY, "uz");
+      setLocaleState("uz");
     } else {
-      setLocaleState(storedLocale);
+      const normalizedLocale = normalizeLocale(storedLocale);
+      setLocaleState(normalizedLocale);
+      if (storedLocale !== normalizedLocale) localStorage.setItem(LOCALE_KEY, normalizedLocale);
     }
     if (storedTheme) setThemeState(storedTheme);
     setOnline(navigator.onLine);

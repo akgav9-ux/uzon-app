@@ -57,12 +57,26 @@ export const profiles = pgTable(
   ],
 );
 
+export const legalAcceptances = pgTable(
+  "legal_acceptances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+    documentVersion: text("document_version").notNull(),
+    locale: text("locale").notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+  },
+  (t) => [index("legal_acceptances_user_idx").on(t.userId)],
+);
+
 export const userSettings = pgTable("user_settings", {
   userId: uuid("user_id")
     .primaryKey()
     .references(() => profiles.id, { onDelete: "cascade" }),
   theme: text("theme").notNull().default("system"), // dark | light | system
-  locale: text("locale").notNull().default("ru"), // ru | en | uz-Latn
+  locale: text("locale").notNull().default("uz"), // uz | ru | en
   autoplay: boolean("autoplay").notNull().default(true),
   dataSaver: boolean("data_saver").notNull().default(false),
   notifications: jsonb("notifications")

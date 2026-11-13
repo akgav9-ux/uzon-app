@@ -1,7 +1,7 @@
 import { mediaSrc } from "@/lib/media";
 import { and, eq, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { passwordResets, profiles, privacySettings, userSettings, verificationCodes } from "@/db/schema";
+import { passwordResets, profiles, privacySettings, userSettings, verificationCodes, legalAcceptances } from "@/db/schema";
 import {
   cookieHeader,
   createSession,
@@ -123,30 +123,42 @@ export async function POST(req: Request) {
           .limit(1);
         if (clash[0]) throw new ApiError(409, "identifier_taken", "That username, email or phone is already registered");
 
-        const locale = body.locale ?? "ru";
-        const [created] = await db
-          .insert(profiles)
-          .values({
-            username,
-            displayName: body.displayName.trim(),
-            email,
-            phone,
-            phoneCountry: body.phoneCountry ?? (phone?.startsWith("+998") ? "+998" : null),
-            passwordHash: hashPassword(body.password),
-            emailVerified: false,
-            phoneVerified: false,
-          })
-          .returning({ id: profiles.id });
-        const userId = created!.id;
-        await db.insert(userSettings).values({ userId, locale, theme: body.theme ?? "system" });
-        await db.insert(privacySettings).values({ userId });
+        const locale = body.locale ?? "uz";
+        // Create the account and its required consent/settings atomically.
+        // If any related insert fails, no incomplete profile is left behind.
+        const userId = await db.transaction(async (tx) => {
+          const [created] = await tx
+            .insert(profiles)
+            .values({
+              username,
+              displayName: body.displayName.trim(),
+              email,
+              phone,
+              phoneCountry: body.phoneCountry ?? (phone?.startsWith("+998") ? "+998" : null),
+              passwordHash: hashPassword(body.password),
+              emailVerified: false,
+              phoneVerified: false,
+            })
+            .returning({ id: profiles.id });
+          const id = created!.id;
+          await tx.insert(legalAcceptances).values({
+            userId: id,
+            documentVersion: body.documentVersion,
+            locale,
+            ip,
+            userAgent: req.headers.get("user-agent")?.slice(0, 500) ?? null,
+          });
+          await tx.insert(userSettings).values({ userId: id, locale, theme: body.theme ?? "system" });
+          await tx.insert(privacySettings).values({ userId: id });
+          return id;
+        });
         await joinOfficialChannel(userId).catch(() => undefined);
 
         const channel: "email" | "phone" = email ? "email" : "phone";
         const destination = email ?? phone!;
         const { code, delivery } = await issueCode(userId, channel, destination, locale);
         const token = await createSession(userId, req);
-        const loaded = await loadUserById(userId);
+        const loaded = await loadUserById(userId, true);
         if (!loaded) throw new ApiError(500, "session_error", "Could not load the new account");
 
         return ok(
@@ -189,6 +201,30 @@ export async function POST(req: Request) {
         }
         assertAccountCanAuthenticate(row.status);
 
+        if (row.email && !row.emailVerified) {
+          const locale =
+            (await db
+              .select({ locale: userSettings.locale })
+              .from(userSettings)
+              .where(eq(userSettings.userId, row.id))
+              .limit(1))[0]?.locale ?? "uz";
+          const { code, delivery } = await issueCode(row.id, "email", row.email, locale);
+          const token = await createSession(row.id, req);
+          return ok(
+            {
+              verificationRequired: true,
+              verification: {
+                channel: "email",
+                destination: row.email.replace(/(^..).*(@)/, "$1***$2"),
+                delivered: delivery.delivered,
+                deliveryReason: delivery.reason ?? null,
+                devCode: !delivery.delivered && config.demoMode ? code : null,
+              },
+            },
+            { headers: { "Set-Cookie": cookieHeader(token, SESSION_SECONDS) } },
+          );
+        }
+
         const token = await createSession(row.id, req);
         const user = await loadUserById(row.id);
         if (!user) throw new ApiError(403, "account_unavailable", "This account is not available");
@@ -202,7 +238,7 @@ export async function POST(req: Request) {
       }
 
       case "resend": {
-        const user = await getSessionUser(req);
+        const user = await getSessionUser(req, true);
         if (!user) throw new ApiError(401, "unauthenticated");
         await rateLimit(`resend:${user.id}`, 5, 600);
         const channel = body.channel ?? (user.email ? "email" : "phone");
@@ -217,7 +253,7 @@ export async function POST(req: Request) {
       }
 
       case "verify": {
-        const user = await getSessionUser(req);
+        const user = await getSessionUser(req, true);
         if (!user) throw new ApiError(401, "unauthenticated");
         await rateLimit(`verify:${user.id}`, 10, 600);
         const [record] = await db
@@ -257,7 +293,7 @@ export async function POST(req: Request) {
             .select({ locale: userSettings.locale })
             .from(userSettings)
             .where(eq(userSettings.userId, row.id))
-            .limit(1))[0]?.locale ?? "ru";
+            .limit(1))[0]?.locale ?? "uz";
         const { code, delivery } = await issueCode(row.id, "email", email, locale);
         return ok({
           sent: true,
@@ -326,7 +362,7 @@ export async function POST(req: Request) {
             .select({ locale: userSettings.locale })
             .from(userSettings)
             .where(eq(userSettings.userId, row.id))
-            .limit(1))[0]?.locale ?? "ru";
+            .limit(1))[0]?.locale ?? "uz";
         const delivery = row.email
           ? await sendEmail(row.email, resetEmail(link, locale).subject, resetEmail(link, locale).html)
           : await sendSms(row.phone ?? "", link);

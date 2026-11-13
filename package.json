@@ -7,6 +7,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:locale": "vitest run tests/locale-normalization.test.ts",
     "db:push": "drizzle-kit push --config=drizzle.config.ts",
     "grant-admin": "node src/scripts/grant-admin.mjs",
     "worker:video": "node src/workers/video-transcoder.mjs"
@@ -15,19 +17,19 @@
     "@aws-sdk/client-s3": "^3.1152.0",
     "@aws-sdk/s3-request-presigner": "^3.1152.0",
     "@tanstack/react-query": "^5.90.20",
-    "@vercel/blob": "^2.8.2",
+    "@vercel/blob": "^2.9.0",
     "clsx": "^2.1.1",
     "dotenv": "17.3.1",
     "drizzle-orm": "0.45.2",
     "lucide-react": "^0.562.0",
-    "next": "16.2.6",
-    "nodemailer": "^10.1.2",
+    "next": "16.4.6",
+    "nodemailer": "^10.1.4",
     "pg": "8.20.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "tailwind-merge": "^3.4.0",
-    "vitest": "^3.2.4",
-    "zod": "^4.3.6"
+    "vitest": "5.1.0",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.1.17",
@@ -36,11 +38,14 @@
     "@types/pg": "8.18.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "drizzle-kit": "^0.30.5",
+    "drizzle-kit": "0.31.11",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.6",
-    "postcss": "8.5.8",
+    "eslint-config-next": "16.4.6",
+    "postcss": "^8.5.23",
     "tailwindcss": "4.1.17",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "@vercel/cli-config": "^0.3.8"
   }
 }

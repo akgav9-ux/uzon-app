@@ -5,12 +5,14 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export const SUPPORTED_LOCALES = ["ru", "en", "uz-Latn"] as const;
+export const SUPPORTED_LOCALES = ["ru", "en", "uz"] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
-/** BCP-47 tag used for Intl formatting. uz-Latn is already valid BCP-47. */
+/** BCP-47 tag used for Intl formatting. Legacy uz-Latn values map to uz. */
 export function intlLocale(locale: string): string {
-  return SUPPORTED_LOCALES.includes(locale as Locale) ? locale : "en";
+  const normalized = locale.toLowerCase();
+  if (normalized === "uz" || normalized.startsWith("uz-")) return "uz";
+  return normalized === "ru" || normalized === "en" ? normalized : "uz";
 }
 
 export function formatNumber(value: number, locale: string): string {
@@ -58,13 +60,14 @@ export function formatTime(iso: string | Date, locale: string): string {
 const RELATIVE: Record<string, { s: string; m: string; h: string; d: string }> = {
   ru: { s: "только что", m: "мин назад", h: "ч назад", d: "дн назад" },
   en: { s: "just now", m: "m ago", h: "h ago", d: "d ago" },
-  "uz-Latn": { s: "hozir", m: "min oldin", h: "soat oldin", d: "kun oldin" },
+  uz: { s: "hozir", m: "min oldin", h: "soat oldin", d: "kun oldin" },
 };
 
 export function formatRelative(iso: string | Date, locale: string): string {
   const date = typeof iso === "string" ? new Date(iso) : iso;
   const diff = Date.now() - date.getTime();
-  const words = RELATIVE[locale] ?? RELATIVE.en;
+  const normalizedLocale = locale.toLowerCase().startsWith("uz") ? "uz" : locale.toLowerCase();
+  const words = RELATIVE[normalizedLocale] ?? RELATIVE.uz;
   if (Number.isNaN(date.getTime())) return "";
   if (diff < 45_000) return words.s;
   if (diff < 3_600_000) return `${Math.round(diff / 60_000)} ${words.m}`;

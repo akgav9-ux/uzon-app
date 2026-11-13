@@ -5,16 +5,22 @@ import { uz } from "./uz";
 export type { Dictionary, TranslationKey };
 export { en, ru, uz };
 
-export const dictionaries: Record<string, Dictionary> = { en, ru, "uz-Latn": uz };
+export const dictionaries: Record<string, Dictionary> = { en, ru, uz };
 
 export const LOCALES = [
+  { code: "uz", label: "Oʻzbekcha", short: "UZ" },
   { code: "ru", label: "Русский", short: "RU" },
   { code: "en", label: "English", short: "EN" },
-  { code: "uz-Latn", label: "Oʻzbekcha (lotin)", short: "UZ" },
 ] as const;
 
+export function normalizeLocale(locale: string): string {
+  const normalized = locale.toLowerCase();
+  if (normalized === "uz" || normalized.startsWith("uz-")) return "uz";
+  return normalized === "ru" || normalized === "en" ? normalized : "uz";
+}
+
 export function dictionaryFor(locale: string): Dictionary {
-  return dictionaries[locale] ?? en;
+  return dictionaries[normalizeLocale(locale)] ?? en;
 }
 
 /**
@@ -29,13 +35,13 @@ export function translate(locale: string, key: TranslationKey, vars?: Record<str
 }
 
 export function detectBrowserLocale(): string {
-  if (typeof navigator === "undefined") return "ru";
+  if (typeof navigator === "undefined") return "uz";
   const candidates = [...(navigator.languages ?? []), navigator.language];
   for (const candidate of candidates) {
     const lower = candidate.toLowerCase();
-    if (lower.startsWith("uz")) return "uz-Latn";
+    if (lower.startsWith("uz")) return "uz";
     if (lower.startsWith("ru")) return "ru";
     if (lower.startsWith("en")) return "en";
   }
-  return "ru";
+  return "uz";
 }

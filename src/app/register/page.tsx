@@ -7,7 +7,7 @@ import { UserPlus, CheckCircle2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useApp } from "@/components/providers";
 import { UzonMark, UzonWordmark } from "@/components/logo";
-import { Badge, Button, Card, Field, Input } from "@/components/ui";
+import { Button, Card, Field, Input } from "@/components/ui";
 import { post as postApi } from "@/lib/client/api";
 import { LOCALES } from "@/lib/i18n";
 
@@ -28,7 +28,7 @@ export default function RegisterPage() {
 
   const [step, setStep] = useState<
     "language" | "form" | "verify" | "success"
-  >("language");
+  >("form");
 
   const [form, setForm] = useState({
     username: "",
@@ -40,12 +40,13 @@ export default function RegisterPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [verification, setVerification] =
     useState<RegisterResponse["verification"] | null>(null);
   const [code, setCode] = useState("");
 
   const successText =
-    locale === "uz-Latn"
+    locale === "uz"
       ? {
           title: "Ro‘yxatdan o‘tish muvaffaqiyatli yakunlandi!",
           description: "UZON platformasiga xush kelibsiz! Hisobingiz foydalanishga tayyor.",
@@ -91,6 +92,8 @@ export default function RegisterPage() {
         password: form.password,
         locale,
         theme,
+        acceptedTerms: true,
+        documentVersion: "2026-11-12",
       });
 
       setVerification(data.verification);
@@ -194,14 +197,25 @@ export default function RegisterPage() {
                   {t("auth.register")}
                 </h1>
 
-                <Badge tone="brand">{locale}</Badge>
+                <select
+                  aria-label={t("auth.chooseLanguage")}
+                  value={locale}
+                  onChange={(event) => setLocale(event.target.value)}
+                  className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink"
+                >
+                  {LOCALES.map((item) => (
+                    <option key={item.code} value={item.code}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <form className="space-y-3" onSubmit={submit}>
                 <Field
                   label={t("auth.username")}
                   required
-                  hint="a-z, 0-9, _ (3–30)"
+                  hint={locale === "uz" ? "Lotin harflari, raqamlar, _ yoki . (3–30)" : locale === "en" ? "Letters, numbers, _ or . (3–30)" : "Латинские буквы, цифры, _ или . (3–30)"}
                 >
                   <Input
                     value={form.username}
@@ -216,7 +230,7 @@ export default function RegisterPage() {
                     required
                     minLength={3}
                     maxLength={30}
-                    invalid={Boolean(error)}
+                    autoComplete="username"
                   />
                 </Field>
 
@@ -235,12 +249,19 @@ export default function RegisterPage() {
                     required
                     minLength={2}
                     maxLength={60}
+                    autoComplete="name"
                   />
                 </Field>
 
                 <Field
                   label={t("auth.email")}
-                  hint={t("auth.or")}
+                  hint={
+                    locale === "uz"
+                      ? "Email yoki telefon raqamidan birini kiriting"
+                      : locale === "en"
+                        ? "Enter either an email address or a phone number"
+                        : "Укажите email или номер телефона"
+                  }
                 >
                   <Input
                     type="email"
@@ -269,14 +290,14 @@ export default function RegisterPage() {
                     }
                     placeholder="+998901234567"
                     inputMode="tel"
+                    autoComplete="tel"
                   />
                 </Field>
 
                 <Field
                   label={t("auth.password")}
                   required
-                  error={error}
-                  hint="min 8"
+                  hint={locale === "uz" ? "Kamida 8 ta belgi" : locale === "en" ? "At least 8 characters" : "Не менее 8 символов"}
                 >
                   <Input
                     type="password"
@@ -293,11 +314,28 @@ export default function RegisterPage() {
                   />
                 </Field>
 
+                <div className="space-y-1.5">
+                  <label className="flex items-start gap-2 text-xs text-ink">
+                    <input type="checkbox" checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} required className="mt-0.5 h-4 w-4 accent-brand" />
+                    <span>{locale === "uz" ? "Men uchala hujjatni o‘qib, qabul qilaman" : locale === "en" ? "I have read and accept all three documents" : "Я прочитал(а) и принимаю все три документа"}</span>
+                  </label>
+                  <p className="pl-6 text-[11px] text-muted">
+                    <Link href="/terms" className="text-brand hover:underline">{locale === "uz" ? "Foydalanish shartlari" : locale === "en" ? "Terms of Service" : "Пользовательское соглашение"}</Link>
+                    {" · "}
+                    <Link href="/privacy" className="text-brand hover:underline">{locale === "uz" ? "Maxfiylik siyosati" : locale === "en" ? "Privacy Policy" : "Политика конфиденциальности"}</Link>
+                    {" · "}
+                    <Link href="/community-guidelines" className="text-brand hover:underline">{locale === "uz" ? "Hamjamiyat qoidalari" : locale === "en" ? "Community Rules" : "Правила сообщества"}</Link>
+                  </p>
+                </div>
+
+                {error && <p role="alert" className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">{error}</p>}
+
                 <Button
                   type="submit"
                   className="w-full"
                   size="lg"
                   loading={busy}
+                  disabled={!acceptedTerms}
                 >
                   {t("auth.register")}
                 </Button>
@@ -306,13 +344,13 @@ export default function RegisterPage() {
               <div className="relative my-2 flex items-center justify-center">
                 <span className="absolute inset-x-0 top-1/2 h-px bg-line" />
                 <span className="relative bg-surface px-2 text-xs text-muted">
-                  или
+                  {locale === "uz" ? "yoki" : locale === "en" ? "or" : "или"}
                 </span>
               </div>
 
               <a
-                href="/api/auth/google"
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface py-2.5 text-sm font-medium text-ink transition hover:bg-surface2"
+                href={"/api/auth/google?accept=" + (acceptedTerms ? "1" : "0") + "&locale=" + encodeURIComponent(locale)}
+                className={"flex w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface py-2.5 text-sm font-medium text-ink transition hover:bg-surface2 " + (acceptedTerms ? "" : "pointer-events-none opacity-50")} aria-disabled={!acceptedTerms} tabIndex={acceptedTerms ? 0 : -1}
               >
                 <svg className="h-4 w-4" viewBox="0 0 24 24">
                   <path
@@ -332,16 +370,11 @@ export default function RegisterPage() {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                   />
                 </svg>
-                Продолжить с Google
+                {locale === "uz" ? "Google orqali davom etish" : locale === "en" ? "Continue with Google" : "Продолжить с Google"}
               </a>
 
               <div className="mt-4 flex items-center justify-between text-xs">
-                <button
-                  onClick={() => setStep("language")}
-                  className="text-muted hover:text-ink"
-                >
-                  {t("auth.chooseLanguage")}
-                </button>
+                <span className="text-muted">{t("auth.welcome")}</span>
 
                 <Link
                   href="/login"
@@ -351,9 +384,6 @@ export default function RegisterPage() {
                 </Link>
               </div>
 
-              <p className="text-[11px] text-muted">
-                {t("auth.terms")}
-              </p>
             </>
           )}
 
@@ -433,12 +463,6 @@ export default function RegisterPage() {
                   {t("common.retry")}
                 </Button>
 
-                <Button
-                  variant="ghost"
-                  onClick={() => router.replace("/home")}
-                >
-                  {t("common.next")}
-                </Button>
               </div>
             </>
           )}
