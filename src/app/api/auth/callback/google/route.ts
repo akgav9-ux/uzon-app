@@ -2,22 +2,46 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { profiles, legalAcceptances, userSettings, privacySettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { createSession, cookieHeader } from "@/lib/auth";
+import { createSession, SESSION_COOKIE } from "@/lib/auth";
+
+const STATE_COOKIE = "uzon_google_oauth_state";
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || url.origin).replace(/\/+$/, "");
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const cookieHeaderValue = req.headers.get("cookie") ?? "";
-  const flowCookie = cookieHeaderValue.split(";").map((part) => part.trim()).find((part) => part.startsWith("uzon_google_flow="))?.slice("uzon_google_flow=".length);
-  const [savedState, acceptedFlag, consentLocale] = decodeURIComponent(flowCookie ?? "").split(".");
+  const requestUrl = new URL(req.url);
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || requestUrl.origin;
+  const code = requestUrl.searchParams.get("code");
+  const returnedState = requestUrl.searchParams.get("state");
+  const cookieValue = req.headers.get("cookie")
+    ?.split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${STATE_COOKIE}=`))
+    ?.slice(STATE_COOKIE.length + 1);
+  const [cookieState, acceptedFlag, requestedLocale] = decodeURIComponent(cookieValue ?? "").split(".");
+  const locale = ["uz", "ru", "en"].includes(requestedLocale) ? requestedLocale : "uz";
 
-  if (!code) return NextResponse.redirect(`${appUrl}/login?error=no_code`);
-  if (!state || !savedState || state !== savedState) return NextResponse.redirect(`${appUrl}/register?error=google_state`);
+  const clearStateCookie = () => ({
+    name: STATE_COOKIE,
+    value: "",
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: 0,
+  });
+
+  const redirectWithError = (path: string) => {
+    const response = NextResponse.redirect(new URL(path, appUrl));
+    response.cookies.set(clearStateCookie());
+    return response;
+  };
+
+  if (!returnedState || !cookieState || returnedState !== cookieState) {
+    return redirectWithError("/login?error=google_state_mismatch");
+  }
+
+  if (!code) return redirectWithError("/login?error=no_code");
 
   try {
-    // 1. Меняем код на access_token
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -25,48 +49,46 @@ export async function GET(req: Request) {
         code,
         client_id: process.env.GOOGLE_CLIENT_ID!,
         client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-        redirect_uri: `${appUrl}/api/auth/callback/google`,
+        redirect_uri: new URL("/api/auth/callback/google", appUrl).toString(),
         grant_type: "authorization_code",
       }),
     });
 
     const tokenData = await tokenRes.json();
-    const access_token = tokenData.access_token;
+    const accessToken = tokenData.access_token;
 
-    if (!access_token) {
+    if (!accessToken) {
       console.error("GOOGLE TOKEN ERROR:", tokenData);
-      return NextResponse.redirect(`${appUrl}/login?error=no_access_token`);
+      return redirectWithError("/login?error=no_access_token");
     }
 
-    // 2. Получаем данные пользователя
     const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-      headers: { Authorization: `Bearer ${access_token}` },
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
     const googleUser = await userRes.json();
 
     if (!googleUser?.email || !googleUser?.id) {
       console.error("GOOGLE USER MISSING DATA:", googleUser);
-      return NextResponse.redirect(`${appUrl}/login?error=google_no_email`);
+      return redirectWithError("/login?error=google_no_email");
     }
 
-    // Never create a session or link an existing account unless Google verifies email ownership.
     if (googleUser.verified_email !== true) {
-      return NextResponse.redirect(`${appUrl}/login?error=google_email_unverified`);
+      return redirectWithError("/login?error=google_email_unverified");
     }
 
-    // 3. Ищем или создаём пользователя
     let [user] = await db.select().from(profiles).where(eq(profiles.googleId, googleUser.id)).limit(1);
-    let createdNewUser = false;
 
     if (!user) {
       [user] = await db.select().from(profiles).where(eq(profiles.email, googleUser.email)).limit(1);
       if (user) {
         await db.update(profiles).set({ googleId: googleUser.id }).where(eq(profiles.id, user.id));
       } else {
-        if (acceptedFlag !== "1") return NextResponse.redirect(`${appUrl}/register?error=terms_required`);
+        if (acceptedFlag !== "1") {
+          return redirectWithError("/register?error=terms_required");
+        }
+
         const baseUsername = googleUser.email.split("@")[0].replace(/[^a-z0-9_.]/g, "") || "user";
         const username = `${baseUsername}${Math.floor(Math.random() * 10000)}`;
-        const locale = ["uz", "ru", "en"].includes(consentLocale) ? consentLocale : "uz";
         [user] = await db.transaction(async (tx) => {
           const [created] = await tx.insert(profiles).values({
             username,
@@ -75,6 +97,7 @@ export async function GET(req: Request) {
             googleId: googleUser.id,
             emailVerified: true,
           }).returning();
+
           await tx.insert(legalAcceptances).values({
             userId: created.id,
             documentVersion: "2026-11-12",
@@ -86,13 +109,15 @@ export async function GET(req: Request) {
           await tx.insert(privacySettings).values({ userId: created.id });
           return [created];
         });
-        createdNewUser = true;
       }
     }
 
-    // Record an explicit acceptance made on the registration screen even when Google links to an existing account.
-    if (user && !createdNewUser && acceptedFlag === "1") {
-      const locale = ["uz", "ru", "en"].includes(consentLocale) ? consentLocale : "uz";
+    if (!user || user.status !== "active") {
+      return redirectWithError("/login?error=account_unavailable");
+    }
+
+    // Record consent only when the user explicitly accepted it on the registration screen.
+    if (acceptedFlag === "1") {
       await db.insert(legalAcceptances).values({
         userId: user.id,
         documentVersion: "2026-11-12",
@@ -102,45 +127,24 @@ export async function GET(req: Request) {
       });
     }
 
-    // Google confirms ownership of verified email addresses.
-    if (user && googleUser.verified_email === true && !user.emailVerified) {
+    if (googleUser.verified_email === true && !user.emailVerified) {
       await db.update(profiles).set({ emailVerified: true }).where(eq(profiles.id, user.id));
     }
 
-    // 4. Создаём сессию
     const token = await createSession(user.id, req);
-
-    // 5. Возвращаем HTML-страницу, которая установит куки и перекинет на /home
-    // (обычный redirect иногда не успевает установить куки в браузере)
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>Вход...</title>
-          <meta http-equiv="refresh" content="0; url=${appUrl}/home?auth=success" />
-        </head>
-        <body>
-          <p>Входим... <a href="${appUrl}/home?auth=success">Нажмите, если не перенаправило</a></p>
-          <script>window.location.href = "${appUrl}/home?auth=success";</script>
-        </body>
-      </html>
-    `;
-
-    const res = new NextResponse(html, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Set-Cookie": cookieHeader(token, 30 * 24 * 60 * 60),
-      },
+    const response = NextResponse.redirect(new URL("/home?auth=success", appUrl));
+    response.cookies.set(SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 30 * 24 * 60 * 60,
     });
-
-    res.cookies.delete("uzon_google_flow");
-    return res;
-
+    response.cookies.set(clearStateCookie());
+    return response;
   } catch (error) {
     console.error("GOOGLE AUTH ERROR:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.redirect(`${appUrl}/login?error=${encodeURIComponent(message)}`);
+    return redirectWithError(`/login?error=${encodeURIComponent(message)}`);
   }
 }
