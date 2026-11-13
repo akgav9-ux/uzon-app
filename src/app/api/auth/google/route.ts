@@ -15,7 +15,7 @@ export async function GET(req: Request) {
 
   const accepted = requestUrl.searchParams.get("accept") === "1";
   const requestedLocale = requestUrl.searchParams.get("locale") ?? "uz-Latn";
-  const locale = ["uz-Latn", "ru", "en"].includes(requestedLocale) ? requestedLocale : "uz";
+  const locale = ["uz-Latn", "ru", "en"].includes(requestedLocale) ? requestedLocale : "uz-Latn";
   const state = randomBytes(32).toString("hex");
   const redirectUri = new URL("/api/auth/callback/google", appUrl).toString();
   const authorizationUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
