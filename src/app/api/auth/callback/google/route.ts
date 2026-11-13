@@ -4,14 +4,42 @@ import { profiles } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { createSession, cookieHeader } from "@/lib/auth";
 
+const STATE_COOKIE = "uzon_google_oauth_state";
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || url.origin;
   const code = url.searchParams.get("code");
+  const returnedState = url.searchParams.get("state");
+  const cookieState = req.headers.get("cookie")
+    ?.split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${STATE_COOKIE}=`))
+    ?.slice(STATE_COOKIE.length + 1);
 
-  if (!code) return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/login?error=no_code`);
+  const clearStateCookie = () => ({
+    name: STATE_COOKIE,
+    value: "",
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: 0,
+  });
+
+  if (!returnedState || !cookieState || returnedState !== cookieState) {
+    const response = NextResponse.redirect(new URL("/login?error=google_state_mismatch", appUrl));
+    response.cookies.set(clearStateCookie());
+    return response;
+  }
+
+  if (!code) {
+    const response = NextResponse.redirect(new URL("/login?error=no_code", appUrl));
+    response.cookies.set(clearStateCookie());
+    return response;
+  }
 
   try {
-    // 1. Меняем код на access_token
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -19,31 +47,33 @@ export async function GET(req: Request) {
         code,
         client_id: process.env.GOOGLE_CLIENT_ID!,
         client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-        redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback/google`,
+        redirect_uri: new URL("/api/auth/callback/google", appUrl).toString(),
         grant_type: "authorization_code",
       }),
     });
 
     const tokenData = await tokenRes.json();
-    const access_token = tokenData.access_token;
+    const accessToken = tokenData.access_token;
 
-    if (!access_token) {
+    if (!accessToken) {
       console.error("GOOGLE TOKEN ERROR:", tokenData);
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/login?error=no_access_token`);
+      const response = NextResponse.redirect(new URL("/login?error=no_access_token", appUrl));
+      response.cookies.set(clearStateCookie());
+      return response;
     }
 
-    // 2. Получаем данные пользователя
     const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-      headers: { Authorization: `Bearer ${access_token}` },
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
     const googleUser = await userRes.json();
 
     if (!googleUser?.email || !googleUser?.id) {
       console.error("GOOGLE USER MISSING DATA:", googleUser);
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/login?error=google_no_email`);
+      const response = NextResponse.redirect(new URL("/login?error=google_no_email", appUrl));
+      response.cookies.set(clearStateCookie());
+      return response;
     }
 
-    // 3. Ищем или создаём пользователя
     let [user] = await db.select().from(profiles).where(eq(profiles.googleId, googleUser.id)).limit(1);
 
     if (!user) {
@@ -63,39 +93,16 @@ export async function GET(req: Request) {
       }
     }
 
-    // 4. Создаём сессию
     const token = await createSession(user.id, req);
-
-    // 5. Возвращаем HTML-страницу, которая установит куки и перекинет на /home
-    // (обычный redirect иногда не успевает установить куки в браузере)
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>Вход...</title>
-          <meta http-equiv="refresh" content="0; url=${process.env.NEXT_PUBLIC_APP_URL}/home?auth=success" />
-        </head>
-        <body>
-          <p>Входим... <a href="${process.env.NEXT_PUBLIC_APP_URL}/home?auth=success">Нажмите, если не перенаправило</a></p>
-          <script>window.location.href = "${process.env.NEXT_PUBLIC_APP_URL}/home?auth=success";</script>
-        </body>
-      </html>
-    `;
-
-    const res = new NextResponse(html, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Set-Cookie": cookieHeader(token, 30 * 24 * 60 * 60),
-      },
-    });
-
-    return res;
-
+    const response = NextResponse.redirect(new URL("/home?auth=success", appUrl));
+    response.headers.append("Set-Cookie", cookieHeader(token, 30 * 24 * 60 * 60));
+    response.cookies.set(clearStateCookie());
+    return response;
   } catch (error) {
     console.error("GOOGLE AUTH ERROR:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/login?error=${encodeURIComponent(message)}`);
+    const response = NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(message)}`, appUrl));
+    response.cookies.set(clearStateCookie());
+    return response;
   }
 }
