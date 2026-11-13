@@ -76,6 +76,7 @@ export async function GET(req: Request) {
       return redirectWithError("/login?error=google_email_unverified");
     }
 
+    let createdNewUser = false;
     let [user] = await db.select().from(profiles).where(eq(profiles.googleId, googleUser.id)).limit(1);
 
     if (!user) {
@@ -109,6 +110,7 @@ export async function GET(req: Request) {
           await tx.insert(privacySettings).values({ userId: created.id });
           return [created];
         });
+        createdNewUser = true;
       }
     }
 
@@ -117,7 +119,7 @@ export async function GET(req: Request) {
     }
 
     // Record consent only when the user explicitly accepted it on the registration screen.
-    if (acceptedFlag === "1") {
+    if (acceptedFlag === "1" && !createdNewUser) {
       await db.insert(legalAcceptances).values({
         userId: user.id,
         documentVersion: "2026-11-12",
