@@ -17,7 +17,7 @@ export async function GET(req: Request) {
     .find((part) => part.startsWith(`${STATE_COOKIE}=`))
     ?.slice(STATE_COOKIE.length + 1);
   const [cookieState, acceptedFlag, requestedLocale] = decodeURIComponent(cookieValue ?? "").split(".");
-  const locale = ["uz-Latn", "ru", "en"].includes(requestedLocale) ? requestedLocale : "uz";
+  const locale = ["uz-Latn", "ru", "en"].includes(requestedLocale) ? requestedLocale : "uz-Latn";
 
   const clearStateCookie = () => ({
     name: STATE_COOKIE,
