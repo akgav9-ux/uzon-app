@@ -123,7 +123,7 @@ function toSessionUser(profile: ProfileRow, settings: SettingsRow | undefined, p
     followingCount: profile.followingCount,
     createdAt: profile.createdAt,
     theme: settings?.theme ?? "system",
-    locale: settings?.locale ?? "ru",
+    locale: settings?.locale ?? "uz-Latn",
     autoplay: settings?.autoplay ?? true,
     dataSaver: settings?.dataSaver ?? false,
     notifications: (settings?.notifications ?? {}) as Record<string, boolean>,
