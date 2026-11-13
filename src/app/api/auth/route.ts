@@ -123,7 +123,7 @@ export async function POST(req: Request) {
           .limit(1);
         if (clash[0]) throw new ApiError(409, "identifier_taken", "That username, email or phone is already registered");
 
-        const locale = body.locale ?? "uz";
+        const locale = body.locale ?? "uz-Latn";
         // Create profile, consent and defaults atomically.
         const userId = await db.transaction(async (tx) => {
           const [created] = await tx.insert(profiles).values({
