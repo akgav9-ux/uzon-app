@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 
 const STATE_COOKIE = "uzon_google_oauth_state";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const requestUrl = new URL(req.url);
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   const clientId = process.env.GOOGLE_CLIENT_ID;
 
@@ -12,6 +13,9 @@ export async function GET() {
     return NextResponse.redirect(new URL("/login?error=google_not_configured", appUrl || "https://uzon-app.vercel.app"));
   }
 
+  const accepted = requestUrl.searchParams.get("accept") === "1";
+  const requestedLocale = requestUrl.searchParams.get("locale") ?? "uz";
+  const locale = ["uz", "ru", "en"].includes(requestedLocale) ? requestedLocale : "uz";
   const state = randomBytes(32).toString("hex");
   const redirectUri = new URL("/api/auth/callback/google", appUrl).toString();
   const authorizationUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -27,7 +31,7 @@ export async function GET() {
   }).toString();
 
   const response = NextResponse.redirect(authorizationUrl);
-  response.cookies.set(STATE_COOKIE, state, {
+  response.cookies.set(STATE_COOKIE, `${state}.${accepted ? "1" : "0"}.${locale}`, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
