@@ -46,7 +46,7 @@ export default function RegisterPage() {
   const [code, setCode] = useState("");
 
   const successText =
-    locale === "uz"
+    locale === "uz-Latn"
       ? {
           title: "Ro‘yxatdan o‘tish muvaffaqiyatli yakunlandi!",
           description: "UZON platformasiga xush kelibsiz! Hisobingiz foydalanishga tayyor.",
@@ -215,7 +215,7 @@ export default function RegisterPage() {
                 <Field
                   label={t("auth.username")}
                   required
-                  hint={locale === "uz" ? "Lotin harflari, raqamlar, _ yoki . (3–30)" : locale === "en" ? "Letters, numbers, _ or . (3–30)" : "Латинские буквы, цифры, _ или . (3–30)"}
+                  hint={locale === "uz-Latn" ? "Lotin harflari, raqamlar, _ yoki . (3–30)" : locale === "en" ? "Letters, numbers, _ or . (3–30)" : "Латинские буквы, цифры, _ или . (3–30)"}
                 >
                   <Input
                     value={form.username}
@@ -256,7 +256,7 @@ export default function RegisterPage() {
                 <Field
                   label={t("auth.email")}
                   hint={
-                    locale === "uz"
+                    locale === "uz-Latn"
                       ? "Email yoki telefon raqamidan birini kiriting"
                       : locale === "en"
                         ? "Enter either an email address or a phone number"
@@ -297,7 +297,7 @@ export default function RegisterPage() {
                 <Field
                   label={t("auth.password")}
                   required
-                  hint={locale === "uz" ? "Kamida 8 ta belgi" : locale === "en" ? "At least 8 characters" : "Не менее 8 символов"}
+                  hint={locale === "uz-Latn" ? "Kamida 8 ta belgi" : locale === "en" ? "At least 8 characters" : "Не менее 8 символов"}
                 >
                   <Input
                     type="password"
@@ -317,14 +317,14 @@ export default function RegisterPage() {
                 <div className="space-y-1.5">
                   <label className="flex items-start gap-2 text-xs text-ink">
                     <input type="checkbox" checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} required className="mt-0.5 h-4 w-4 accent-brand" />
-                    <span>{locale === "uz" ? "Men uchala hujjatni o‘qib, qabul qilaman" : locale === "en" ? "I have read and accept all three documents" : "Я прочитал(а) и принимаю все три документа"}</span>
+                    <span>{locale === "uz-Latn" ? "Men uchala hujjatni o‘qib, qabul qilaman" : locale === "en" ? "I have read and accept all three documents" : "Я прочитал(а) и принимаю все три документа"}</span>
                   </label>
                   <p className="pl-6 text-[11px] text-muted">
-                    <Link href="/terms" className="text-brand hover:underline">{locale === "uz" ? "Foydalanish shartlari" : locale === "en" ? "Terms of Service" : "Пользовательское соглашение"}</Link>
+                    <Link href="/terms" className="text-brand hover:underline">{locale === "uz-Latn" ? "Foydalanish shartlari" : locale === "en" ? "Terms of Service" : "Пользовательское соглашение"}</Link>
                     {" · "}
-                    <Link href="/privacy" className="text-brand hover:underline">{locale === "uz" ? "Maxfiylik siyosati" : locale === "en" ? "Privacy Policy" : "Политика конфиденциальности"}</Link>
+                    <Link href="/privacy" className="text-brand hover:underline">{locale === "uz-Latn" ? "Maxfiylik siyosati" : locale === "en" ? "Privacy Policy" : "Политика конфиденциальности"}</Link>
                     {" · "}
-                    <Link href="/community-guidelines" className="text-brand hover:underline">{locale === "uz" ? "Hamjamiyat qoidalari" : locale === "en" ? "Community Rules" : "Правила сообщества"}</Link>
+                    <Link href="/community-guidelines" className="text-brand hover:underline">{locale === "uz-Latn" ? "Hamjamiyat qoidalari" : locale === "en" ? "Community Rules" : "Правила сообщества"}</Link>
                   </p>
                 </div>
 
@@ -344,7 +344,7 @@ export default function RegisterPage() {
               <div className="relative my-2 flex items-center justify-center">
                 <span className="absolute inset-x-0 top-1/2 h-px bg-line" />
                 <span className="relative bg-surface px-2 text-xs text-muted">
-                  {locale === "uz" ? "yoki" : locale === "en" ? "or" : "или"}
+                  {locale === "uz-Latn" ? "yoki" : locale === "en" ? "or" : "или"}
                 </span>
               </div>
 
@@ -370,7 +370,7 @@ export default function RegisterPage() {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                   />
                 </svg>
-                {locale === "uz" ? "Google orqali davom etish" : locale === "en" ? "Continue with Google" : "Продолжить с Google"}
+                {locale === "uz-Latn" ? "Google orqali davom etish" : locale === "en" ? "Continue with Google" : "Продолжить с Google"}
               </a>
 
               <div className="mt-4 flex items-center justify-between text-xs">
