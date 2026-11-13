@@ -3,10 +3,7 @@ import { SUPPORTED_LOCALES, slugifyChannel, slugifyUsername } from "@/lib/utils"
 
 export const audienceSchema = z.enum(["public", "followers", "contacts", "private"]);
 export const privacyRuleSchema = z.enum(["everyone", "followers", "contacts", "selected", "nobody"]);
-const localeSchema = z.preprocess(
-  (value) => typeof value === "string" && value.toLowerCase().startsWith("uz-") ? "uz" : value,
-  z.enum(SUPPORTED_LOCALES),
-);
+const localeSchema = z.enum(SUPPORTED_LOCALES);
 
 export const registerSchema = z
   .object({
