@@ -76,7 +76,7 @@ export const userSettings = pgTable("user_settings", {
     .primaryKey()
     .references(() => profiles.id, { onDelete: "cascade" }),
   theme: text("theme").notNull().default("system"), // dark | light | system
-  locale: text("locale").notNull().default("uz"), // uz | ru | en
+  locale: text("locale").notNull().default("uz-Latn"), // ru | en | uz-Latn
   autoplay: boolean("autoplay").notNull().default(true),
   dataSaver: boolean("data_saver").notNull().default(false),
   notifications: jsonb("notifications")
