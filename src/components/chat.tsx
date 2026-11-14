@@ -693,6 +693,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const [captureMode, setCaptureMode] = useState<"audio" | "video">("audio");
   const [voicePhase, setVoicePhase] = useState<"starting" | "recording" | "review">("starting");
   const [videoOpen, setVideoOpen] = useState(false);
+  const [videoHoldActive, setVideoHoldActive] = useState(false);
   const [pending, setPending] = useState<PendingItem[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<MessagePayload | null>(null);
@@ -976,6 +977,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
         setVoicePhase("starting");
         setVoiceActive(true);
       } else {
+        setVideoHoldActive(true);
         setVideoOpen(true);
       }
     }, 350);
@@ -995,6 +997,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     if (!pressRef.current) return;
     if (longPressRef.current) {
       if (captureMode === "audio") voiceCtl.current?.stop();
+      else setVideoHoldActive(false);
     } else {
       setCaptureMode((mode) => (mode === "audio" ? "video" : "audio"));
     }
@@ -1219,6 +1222,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                 onPointerCancel={() => {
                   clearPressTimer();
                   if (longPressRef.current && captureMode === "audio") voiceCtl.current?.cancel();
+                  if (longPressRef.current && captureMode === "video") setVideoHoldActive(false);
                   pressRef.current = null;
                   longPressRef.current = false;
                 }}
@@ -1240,6 +1244,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
       {videoOpen && (
         <VideoRecorderOverlay
           tr={tr}
+          holdActive={videoHoldActive}
           onClose={() => setVideoOpen(false)}
           onError={(msg) => toast(msg, "error")}
           onSend={(blob, mime, duration) => sendRecorded(blob, mime, duration, "video")}
@@ -1507,11 +1512,13 @@ function VoiceRecorder({
 
 function VideoRecorderOverlay({
   tr,
+  holdActive = false,
   onClose,
   onSend,
   onError,
 }: {
   tr: Tr;
+  holdActive?: boolean;
   onClose: () => void;
   onSend: (blob: Blob, mime: string, duration: number) => void;
   onError: (message: string) => void;
@@ -1660,6 +1667,13 @@ function VideoRecorderOverlay({
       }
     }
   };
+
+  useEffect(() => {
+    if (holdActive && stage === "ready") startRecording();
+    else if (!holdActive && stage === "recording") stopRecording(false);
+    // startRecording / stopRecording intentionally use the current recorder refs and stage.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holdActive, stage]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
