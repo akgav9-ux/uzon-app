@@ -690,6 +690,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const [panelOpen, setPanelOpen] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
   const [voiceActive, setVoiceActive] = useState(false);
+  const [captureMode, setCaptureMode] = useState<"audio" | "video">("audio");
   const [voicePhase, setVoicePhase] = useState<"starting" | "recording" | "review">("starting");
   const [videoOpen, setVideoOpen] = useState(false);
   const [pending, setPending] = useState<PendingItem[]>([]);
@@ -707,6 +708,8 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const pendingRef = useRef<PendingItem[]>([]);
   const voiceCtl = useRef<{ stop: () => void; cancel: () => void } | null>(null);
   const pressRef = useRef<{ t: number; x: number } | null>(null);
+  const pressTimerRef = useRef<number | null>(null);
+  const longPressRef = useRef(false);
 
   pendingRef.current = pending;
 
@@ -951,36 +954,52 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     });
   };
 
-  /* ------------------------ кнопка микрофона (hold / tap) ------------------------ */
+  /* ---------------------- переключение аудио / видео ---------------------- */
 
-  const onMicDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+  const clearPressTimer = () => {
+    if (pressTimerRef.current !== null) {
+      window.clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+  };
+
+  const onCaptureDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
-    if (videoOpen) return;
-    if (voiceActive) {
-      if (voicePhase === "recording") voiceCtl.current?.stop();
-      return;
-    }
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      /* ignore */
-    }
+    if (voiceActive || videoOpen) return;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    longPressRef.current = false;
     pressRef.current = { t: Date.now(), x: e.clientX };
     setPanelOpen(false);
-    setVoicePhase("starting");
-    setVoiceActive(true);
+    pressTimerRef.current = window.setTimeout(() => {
+      longPressRef.current = true;
+      if (captureMode === "audio") {
+        setVoicePhase("starting");
+        setVoiceActive(true);
+      } else {
+        setVideoOpen(true);
+      }
+    }, 350);
   };
-  const onMicMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+
+  const onCaptureMove = (e: React.PointerEvent<HTMLButtonElement>) => {
     const p = pressRef.current;
-    if (p && e.clientX - p.x < -90) {
-      pressRef.current = null;
-      voiceCtl.current?.cancel();
-    }
-  };
-  const onMicUp = () => {
-    const p = pressRef.current;
+    if (!p || e.clientX - p.x >= -90) return;
+    clearPressTimer();
+    if (longPressRef.current && captureMode === "audio") voiceCtl.current?.cancel();
+    longPressRef.current = false;
     pressRef.current = null;
-    if (p && Date.now() - p.t > 600) voiceCtl.current?.stop();
+  };
+
+  const onCaptureUp = () => {
+    clearPressTimer();
+    if (!pressRef.current) return;
+    if (longPressRef.current) {
+      if (captureMode === "audio") voiceCtl.current?.stop();
+    } else {
+      setCaptureMode((mode) => (mode === "audio" ? "video" : "audio"));
+    }
+    pressRef.current = null;
+    longPressRef.current = false;
   };
 
   /* ------------------------------- RENDER ------------------------------- */
@@ -1110,7 +1129,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
 
       {/* ------------------------------ ВВОД ------------------------------ */}
       {canPost ? (
-        <footer className="safe-bottom shrink-0 border-t border-line bg-surface px-3 pb-2 pt-2">
+        <footer className="safe-bottom z-10 mb-2 shrink-0 px-3 pb-1 pt-1">
           {panelOpen && !voiceActive && <EmojiPanel tr={tr} recent={recent} onPick={insertEmoji} />}
 
           <form
@@ -1141,7 +1160,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                 />
               </div>
             ) : (
-              <div className="flex min-h-[52px] min-w-0 flex-1 items-center gap-1 rounded-full border border-white/10 bg-[#171820] px-2 shadow-inner">
+              <div className="flex min-h-[46px] min-w-0 flex-1 items-center gap-1 rounded-full border border-white/15 bg-surface/55 px-2 shadow-lg backdrop-blur-xl">
                 <button
                   type="button"
                   onClick={togglePanel}
@@ -1166,37 +1185,8 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                   }}
                   placeholder={t("chat.write")}
                   aria-label={t("chat.write")}
-                  className="max-h-32 min-h-[44px] min-w-0 flex-1 resize-none bg-transparent py-3 text-[15px] leading-5 text-ink outline-none placeholder:text-muted"
+                  className="max-h-28 min-h-[38px] min-w-0 flex-1 resize-none bg-transparent py-2.5 text-[15px] leading-5 text-ink outline-none placeholder:text-muted"
                 />
-
-                {!hasText && (
-                  <button
-                    type="button"
-                    aria-label={tr("chat.recordVoice")}
-                    title={tr("chat.recordVoice")}
-                    onContextMenu={(e) => e.preventDefault()}
-                    onPointerDown={onMicDown}
-                    onPointerMove={onMicMove}
-                    onPointerUp={onMicUp}
-                    onPointerCancel={() => {
-                      pressRef.current = null;
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        if (voiceActive) voiceCtl.current?.stop();
-                        else {
-                          setVoicePhase("starting");
-                          setVoiceActive(true);
-                        }
-                      }
-                    }}
-                    className="flex h-9 w-9 shrink-0 touch-none select-none items-center justify-center rounded-full text-muted transition hover:bg-white/5 hover:text-ink active:scale-90"
-                    style={{ touchAction: "none" }}
-                  >
-                    <Mic className="h-5 w-5" />
-                  </button>
-                )}
 
                 <button
                   type="button"
@@ -1221,15 +1211,24 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
             ) : (
               <button
                 type="button"
-                aria-label={tr("chat.recordVideo")}
-                title={tr("chat.recordVideo")}
-                onClick={() => {
-                  setPanelOpen(false);
-                  setVideoOpen(true);
+                aria-label={captureMode === "audio" ? tr("chat.recordVoice") : tr("chat.recordVideo")}
+                title={captureMode === "audio" ? tr("chat.recordVoice") : tr("chat.recordVideo")}
+                onPointerDown={onCaptureDown}
+                onPointerMove={onCaptureMove}
+                onPointerUp={onCaptureUp}
+                onPointerCancel={() => {
+                  clearPressTimer();
+                  if (longPressRef.current && captureMode === "audio") voiceCtl.current?.cancel();
+                  pressRef.current = null;
+                  longPressRef.current = false;
                 }}
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-green-600 text-white shadow-md transition active:scale-90"
+                className={cn(
+                  "flex h-11 w-11 shrink-0 touch-none select-none items-center justify-center rounded-full text-white shadow-md transition active:scale-90",
+                  captureMode === "audio" ? "bg-gradient-to-br from-sky-500 to-blue-600" : "bg-gradient-to-br from-emerald-500 to-green-600"
+                )}
+                style={{ touchAction: "none" }}
               >
-                <CameraIcon className="h-6 w-6" />
+                {captureMode === "audio" ? <Mic className="h-5 w-5" /> : <CameraIcon className="h-5 w-5" />}
               </button>
             )}
           </form>
