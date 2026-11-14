@@ -791,19 +791,38 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     setShowDown(false);
   }, [conversationId]);
 
-  // Автоскролл вниз при новых сообщениях
+  // Автоскролл вниз при первом открытии и новых сообщениях
   useEffect(() => {
     if (messages.length === 0) return;
-    if (firstScrollRef.current) {
-      firstScrollRef.current = false;
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "auto" }), 50);
-      return;
-    }
     const el = listRef.current;
     if (!el) return;
+
+    if (firstScrollRef.current) {
+      // Ждём, пока React закончит раскладку всех сообщений, затем
+      // прокручиваем именно контейнер списка, а не ближайший scrollable ancestor.
+      let secondFrame = 0;
+      const firstFrame = requestAnimationFrame(() => {
+        secondFrame = requestAnimationFrame(() => {
+          const container = listRef.current;
+          if (!container) return;
+          container.scrollTop = container.scrollHeight;
+          atBottomRef.current = true;
+          firstScrollRef.current = false;
+          setShowDown(false);
+        });
+      });
+      return () => {
+        cancelAnimationFrame(firstFrame);
+        if (secondFrame) cancelAnimationFrame(secondFrame);
+      };
+    }
+
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     if (dist < 300 || atBottomRef.current) {
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      requestAnimationFrame(() => {
+        const container = listRef.current;
+        if (container) container.scrollTop = container.scrollHeight;
+      });
     }
   }, [messages]);
 
