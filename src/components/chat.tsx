@@ -711,6 +711,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
   const pressRef = useRef<{ t: number; x: number } | null>(null);
   const pressTimerRef = useRef<number | null>(null);
   const longPressRef = useRef(false);
+  const voiceHoldReleasedRef = useRef(false);
 
   pendingRef.current = pending;
 
@@ -969,6 +970,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     if (voiceActive || videoOpen) return;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     longPressRef.current = false;
+    voiceHoldReleasedRef.current = false;
     pressRef.current = { t: Date.now(), x: e.clientX };
     setPanelOpen(false);
     pressTimerRef.current = window.setTimeout(() => {
@@ -996,8 +998,10 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     clearPressTimer();
     if (!pressRef.current) return;
     if (longPressRef.current) {
-      if (captureMode === "audio") voiceCtl.current?.stop();
-      else setVideoHoldActive(false);
+      if (captureMode === "audio") {
+        voiceHoldReleasedRef.current = true;
+        voiceCtl.current?.stop();
+      } else setVideoHoldActive(false);
     } else {
       setCaptureMode((mode) => (mode === "audio" ? "video" : "audio"));
     }
@@ -1149,7 +1153,10 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                 <VoiceRecorder
                   tr={tr}
                   ctl={voiceCtl}
-                  onPhase={setVoicePhase}
+                  onPhase={(phase) => {
+                    setVoicePhase(phase);
+                    if (phase === "recording" && voiceHoldReleasedRef.current) voiceCtl.current?.stop();
+                  }}
                   onCancel={() => {
                     setVoiceActive(false);
                     setVoicePhase("starting");
