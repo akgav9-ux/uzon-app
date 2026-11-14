@@ -1234,7 +1234,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
             )}
           </form>
         </footer>
-      )      ) : (
+      ) : (
         <footer className="shrink-0 border-t border-line px-3 py-3 text-center text-xs text-muted">{t("chat.noPermission")}</footer>
       )}
 
