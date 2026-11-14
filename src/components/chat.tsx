@@ -1195,7 +1195,7 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                   }}
                   placeholder={t("chat.write")}
                   aria-label={t("chat.write")}
-                  className="max-h-28 min-h-[38px] min-w-0 flex-1 resize-none bg-transparent py-2.5 text-[15px] leading-5 text-ink caret-[#c4c7d0] outline-none placeholder:text-muted"
+                  className="max-h-28 min-h-[38px] min-w-0 flex-1 resize-none bg-transparent py-2.5 text-[15px] leading-5 text-ink caret-transparent outline-none placeholder:text-muted"
                 />
 
                 <button
