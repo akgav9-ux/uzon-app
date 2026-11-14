@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertCircle, ArrowLeft, Check, CheckCheck, ChevronDown, Clock, Crown, Flag, Info, Mic, MoreHorizontal, Paperclip, Pause, Phone, Pin, Play, Plus, RotateCcw, Search, Send, Smile, Square, SwitchCamera, Trash2, Video as VideoIcon, X,
+  AlertCircle, ArrowLeft, Camera as CameraIcon, Check, CheckCheck, ChevronDown, Clock, Crown, Flag, Info, Mic, MoreHorizontal, Paperclip, Pause, Phone, Pin, Play, Plus, RotateCcw, Search, Send, Smile, Square, SwitchCamera, Trash2, Video as VideoIcon, X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useApp } from "@/components/providers";
@@ -1110,11 +1110,11 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
 
       {/* ------------------------------ ВВОД ------------------------------ */}
       {canPost ? (
-        <footer className="safe-bottom shrink-0 border-t border-line bg-surface px-2 pb-2 pt-2">
+        <footer className="safe-bottom shrink-0 border-t border-line bg-surface px-3 pb-2 pt-2">
           {panelOpen && !voiceActive && <EmojiPanel tr={tr} recent={recent} onPick={insertEmoji} />}
 
           <form
-            className="flex items-end gap-1.5"
+            className="flex items-end gap-2"
             onSubmit={(event) => {
               event.preventDefault();
               submitText();
@@ -1122,30 +1122,36 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
           >
             <input ref={fileRef} type="file" multiple accept="image/*,video/*,audio/*,.pdf,.txt,.zip" className="hidden" onChange={(e) => onFilesPicked(e.target.files)} />
 
-            {!voiceActive && (
-              <IconButton label={tr("chat.attach")} onClick={() => fileRef.current?.click()} type="button" className="mb-0.5">
-                <Paperclip className="h-5 w-5" />
-              </IconButton>
-            )}
-
             {voiceActive ? (
-              <VoiceRecorder
-                tr={tr}
-                ctl={voiceCtl}
-                onPhase={setVoicePhase}
-                onCancel={() => {
-                  setVoiceActive(false);
-                  setVoicePhase("starting");
-                }}
-                onError={(msg) => toast(msg, "error")}
-                onSend={(blob, mime, duration) => {
-                  setVoiceActive(false);
-                  setVoicePhase("starting");
-                  sendRecorded(blob, mime, duration, "audio");
-                }}
-              />
+              <div className="min-w-0 flex-1">
+                <VoiceRecorder
+                  tr={tr}
+                  ctl={voiceCtl}
+                  onPhase={setVoicePhase}
+                  onCancel={() => {
+                    setVoiceActive(false);
+                    setVoicePhase("starting");
+                  }}
+                  onError={(msg) => toast(msg, "error")}
+                  onSend={(blob, mime, duration) => {
+                    setVoiceActive(false);
+                    setVoicePhase("starting");
+                    sendRecorded(blob, mime, duration, "audio");
+                  }}
+                />
+              </div>
             ) : (
-              <div className="relative flex min-w-0 flex-1 items-end rounded-[22px] bg-surface2 ring-1 ring-transparent transition focus-within:ring-brand/50">
+              <div className="flex min-h-[52px] min-w-0 flex-1 items-center gap-1 rounded-full border border-white/10 bg-[#171820] px-2 shadow-inner">
+                <button
+                  type="button"
+                  onClick={togglePanel}
+                  aria-label={tr("chat.emoji")}
+                  aria-pressed={panelOpen}
+                  className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition", panelOpen ? "bg-brandsoft text-brand" : "text-muted hover:bg-white/5 hover:text-ink")}
+                >
+                  <Smile className="h-6 w-6" />
+                </button>
+
                 <textarea
                   ref={taRef}
                   rows={1}
@@ -1160,82 +1166,75 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
                   }}
                   placeholder={t("chat.write")}
                   aria-label={t("chat.write")}
-                  className="max-h-32 min-h-[44px] min-w-0 flex-1 resize-none bg-transparent py-3 pl-4 pr-1 text-sm leading-5 text-ink outline-none placeholder:text-muted"
+                  className="max-h-32 min-h-[44px] min-w-0 flex-1 resize-none bg-transparent py-3 text-[15px] leading-5 text-ink outline-none placeholder:text-muted"
                 />
+
+                {!hasText && (
+                  <button
+                    type="button"
+                    aria-label={tr("chat.recordVoice")}
+                    title={tr("chat.recordVoice")}
+                    onContextMenu={(e) => e.preventDefault()}
+                    onPointerDown={onMicDown}
+                    onPointerMove={onMicMove}
+                    onPointerUp={onMicUp}
+                    onPointerCancel={() => {
+                      pressRef.current = null;
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        if (voiceActive) voiceCtl.current?.stop();
+                        else {
+                          setVoicePhase("starting");
+                          setVoiceActive(true);
+                        }
+                      }
+                    }}
+                    className="flex h-9 w-9 shrink-0 touch-none select-none items-center justify-center rounded-full text-muted transition hover:bg-white/5 hover:text-ink active:scale-90"
+                    style={{ touchAction: "none" }}
+                  >
+                    <Mic className="h-5 w-5" />
+                  </button>
+                )}
+
                 <button
                   type="button"
-                  onClick={togglePanel}
-                  aria-label={tr("chat.emoji")}
-                  aria-pressed={panelOpen}
-                  className={cn("mb-1 mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition", panelOpen ? "bg-brandsoft text-brand" : "text-muted hover:text-ink")}
+                  aria-label={tr("chat.attach")}
+                  title={tr("chat.attach")}
+                  onClick={() => fileRef.current?.click()}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-white/5 hover:text-ink active:scale-90"
                 >
-                  <Smile className="h-5 w-5" />
+                  <Paperclip className="h-5 w-5" />
                 </button>
               </div>
             )}
 
-            <div className="mb-0.5 flex shrink-0 items-center gap-1">
-              {hasText && !voiceActive ? (
-                <button
-                  type="submit"
-                  aria-label={tr("chat.sendNow")}
-                  className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand/80 text-white shadow-md transition active:scale-90"
-                >
-                  <Send className="h-5 w-5" />
-                </button>
-              ) : (
-                <>
-                  {!voiceActive && (
-                    <button
-                      type="button"
-                      aria-label={tr("chat.recordVideo")}
-                      title={tr("chat.recordVideo")}
-                      onClick={() => {
-                        setPanelOpen(false);
-                        setVideoOpen(true);
-                      }}
-                      className="flex h-11 w-11 items-center justify-center rounded-full text-muted transition hover:bg-surface2 hover:text-ink active:scale-90"
-                    >
-                      <VideoIcon className="h-5 w-5" />
-                    </button>
-                  )}
-                  {(!voiceActive || voicePhase !== "review") && (
-                    <button
-                      type="button"
-                      aria-label={voiceActive ? tr("chat.stopRecord") : tr("chat.recordVoice")}
-                      title={tr("chat.recordVoice")}
-                      onContextMenu={(e) => e.preventDefault()}
-                      onPointerDown={onMicDown}
-                      onPointerMove={onMicMove}
-                      onPointerUp={onMicUp}
-                      onPointerCancel={() => {
-                        pressRef.current = null;
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          if (voiceActive) voiceCtl.current?.stop();
-                          else {
-                            setVoicePhase("starting");
-                            setVoiceActive(true);
-                          }
-                        }
-                      }}
-                      className={cn(
-                        "flex h-11 w-11 touch-none select-none items-center justify-center rounded-full transition active:scale-90",
-                        voiceActive ? "scale-110 bg-danger text-white shadow-lg" : "bg-gradient-to-br from-brand to-brand/80 text-white shadow-md",
-                      )}
-                      style={{ touchAction: "none" }}
-                    >
-                      {voiceActive ? <Square className="h-4 w-4 fill-current" /> : <Mic className="h-5 w-5" />}
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
+            {hasText && !voiceActive ? (
+              <button
+                type="submit"
+                aria-label={tr("chat.sendNow")}
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand/80 text-white shadow-md transition active:scale-90"
+              >
+                <Send className="h-5 w-5" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                aria-label={tr("chat.recordVideo")}
+                title={tr("chat.recordVideo")}
+                onClick={() => {
+                  setPanelOpen(false);
+                  setVideoOpen(true);
+                }}
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-green-600 text-white shadow-md transition active:scale-90"
+              >
+                <CameraIcon className="h-6 w-6" />
+              </button>
+            )}
           </form>
         </footer>
-      ) : (
+      )      ) : (
         <footer className="shrink-0 border-t border-line px-3 py-3 text-center text-xs text-muted">{t("chat.noPermission")}</footer>
       )}
 
