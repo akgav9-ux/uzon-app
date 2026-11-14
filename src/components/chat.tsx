@@ -784,6 +784,13 @@ export function ChatRoom({ conversationId, onBack }: { conversationId: string; o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, lang]);
 
+  // При каждом открытии другого диалога начинаем с последнего сообщения
+  useEffect(() => {
+    firstScrollRef.current = true;
+    atBottomRef.current = true;
+    setShowDown(false);
+  }, [conversationId]);
+
   // Автоскролл вниз при новых сообщениях
   useEffect(() => {
     if (messages.length === 0) return;
