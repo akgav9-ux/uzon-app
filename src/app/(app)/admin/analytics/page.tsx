@@ -736,6 +736,23 @@ export default function AdminAnalyticsPage() {
           </div>
         </Panel>
 
+        <Panel className="p-4 sm:p-5">
+          <SectionTitle icon={Activity} title="Динамика посещений" subtitle="Посетители по дням · последние 30 дней" color={COLORS.cyan} />
+          {data.visitors.byDay.length ? (
+            <div className="mt-5 flex h-36 items-end gap-1 overflow-x-auto border-b border-[#1b2d49] px-1">
+              {data.visitors.byDay.slice(-30).map((item) => {
+                const max = Math.max(1, ...data.visitors.byDay.slice(-30).map((row) => row.visitors));
+                return (
+                  <div key={item.day} title={`${item.day}: ${item.visitors} посетителей · ${item.pageViews} просмотров страниц`} className="flex h-full min-w-3 flex-1 flex-col items-center justify-end gap-1">
+                    <div className="w-full max-w-8 rounded-t bg-gradient-to-t from-cyan-700 to-cyan-400" style={{ height: `${Math.max(2, item.visitors / max * 90)}%` }} />
+                    <span className="text-[8px] text-[#8098bb]">{formatDay(item.day)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : <p className="mt-4 text-sm text-[#8298b8]">Данных пока нет.</p>}
+        </Panel>
+
         <div className="grid gap-4 lg:grid-cols-2">
           <Panel className="p-4 sm:p-5">
             <SectionTitle icon={Compass} title="Источники переходов" subtitle="Уникальные посетители и просмотры" color={COLORS.purple} />
