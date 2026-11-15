@@ -124,6 +124,8 @@ export async function GET(req: Request) {
         uniqueVisitors: sql<number>`count(distinct ${visitorAnalytics.visitorId})::int`,
         sessions: sql<number>`count(distinct ${visitorAnalytics.sessionId})::int`,
         anonymousPageViews: sql<number>`count(*) filter (where ${visitorAnalytics.userId} is null)::int`,
+        anonymousVisitors: sql<number>`count(distinct ${visitorAnalytics.visitorId}) filter (where ${visitorAnalytics.userId} is null)::int`,
+        registeredVisitors: sql<number>`count(distinct ${visitorAnalytics.visitorId}) filter (where ${visitorAnalytics.userId} is not null)::int`,
         registeredPageViews: sql<number>`count(*) filter (where ${visitorAnalytics.userId} is not null)::int`,
       })
       .from(visitorAnalytics)
@@ -210,7 +212,7 @@ export async function GET(req: Request) {
       registrationsByDay: registrationRows,
       events: eventRows,
       visitors: {
-        totals: visitorTotals ?? { pageViews: 0, uniqueVisitors: 0, sessions: 0, anonymousPageViews: 0, registeredPageViews: 0 },
+        totals: visitorTotals ?? { pageViews: 0, uniqueVisitors: 0, sessions: 0, anonymousPageViews: 0, anonymousVisitors: 0, registeredVisitors: 0, registeredPageViews: 0 },
         bySource: sourceRows,
         byCountry: countryRows,
         byDevice: deviceRows,
