@@ -287,11 +287,14 @@ export default function AdminAnalyticsPage() {
     data.events.find((item) => item.type === "view")?.watchMs ?? 0;
 
   const registrationTotal =
-    days === 7
-      ? totals?.registrations7d ?? 0
-      : days === 30
-        ? totals?.registrations30d ?? 0
-        : registrations.reduce((sum, item) => sum + item.count, 0);
+    days === "all"
+      ? totals?.registrationsAllTime ?? 0
+      : days === 7
+        ? totals?.registrations7d ?? 0
+        : days === 30
+          ? totals?.registrations30d ?? 0
+          : registrations.reduce((sum, item) => sum + item.count, 0);
+  const periodLabel = days === "all" ? "за всё время" : `за ${days} дней`;
 
   const formatDay = (day: string) => {
     const [, month, date] = day.split("-");
