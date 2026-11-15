@@ -161,6 +161,26 @@ export async function GET(req: Request) {
       .groupBy(visitorAnalytics.deviceType)
       .orderBy(sql`count(distinct ${visitorAnalytics.visitorId}) desc`);
 
+    const browserRows = await db
+      .select({
+        browser: visitorAnalytics.browser,
+        visitors: sql<number>`count(distinct ${visitorAnalytics.visitorId})::int`,
+      })
+      .from(visitorAnalytics)
+      .where(gte(visitorAnalytics.createdAt, since))
+      .groupBy(visitorAnalytics.browser)
+      .orderBy(sql`count(distinct ${visitorAnalytics.visitorId}) desc`);
+
+    const osRows = await db
+      .select({
+        os: visitorAnalytics.os,
+        visitors: sql<number>`count(distinct ${visitorAnalytics.visitorId})::int`,
+      })
+      .from(visitorAnalytics)
+      .where(gte(visitorAnalytics.createdAt, since))
+      .groupBy(visitorAnalytics.os)
+      .orderBy(sql`count(distinct ${visitorAnalytics.visitorId}) desc`);
+
     const visitorDailyRows = await db
       .select({
         day: sql<string>`to_char(date_trunc('day', ${visitorAnalytics.createdAt}), 'YYYY-MM-DD')`,
@@ -194,6 +214,8 @@ export async function GET(req: Request) {
         bySource: sourceRows,
         byCountry: countryRows,
         byDevice: deviceRows,
+        byBrowser: browserRows,
+        byOs: osRows,
         byDay: visitorDailyRows,
       },
       content: content ?? { channels: 0, groups: 0 },
