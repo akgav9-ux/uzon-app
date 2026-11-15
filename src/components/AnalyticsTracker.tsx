@@ -36,10 +36,11 @@ export function AnalyticsTracker() {
   }, []);
 
   useEffect(() => {
-    if (consent !== "accepted" || !pathname) return;
+    if (consent !== "accepted" || !pathname || lastTrackedPath.current === pathname) return;
+    lastTrackedPath.current = pathname;
 
     const visitorId = getOrCreate(VISITOR_KEY);
-    const sessionId = getOrCreate(SESSION_KEY);
+    const sessionId = getOrCreate(SESSION_KEY, sessionStorage);
     let acquisition: { referrerHost: string | null; utmSource: string | null; utmMedium: string | null; utmCampaign: string | null };
     const savedAcquisition = localStorage.getItem(ACQUISITION_KEY);
     if (savedAcquisition) {
@@ -74,10 +75,7 @@ export function AnalyticsTracker() {
         visitorId,
         sessionId,
         path: pathname,
-        referrerHost,
-        utmSource: params.get("utm_source"),
-        utmMedium: params.get("utm_medium"),
-        utmCampaign: params.get("utm_campaign"),
+        ...acquisition,
         browser,
         os,
         deviceType,
