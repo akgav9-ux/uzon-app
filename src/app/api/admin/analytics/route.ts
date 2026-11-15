@@ -124,7 +124,7 @@ export async function GET(req: Request) {
         uniqueVisitors: sql<number>`count(distinct ${visitorAnalytics.visitorId})::int`,
         sessions: sql<number>`count(distinct ${visitorAnalytics.sessionId})::int`,
         anonymousPageViews: sql<number>`count(*) filter (where ${visitorAnalytics.userId} is null)::int`,
-        anonymousVisitors: sql<number>`count(distinct ${visitorAnalytics.visitorId}) filter (where ${visitorAnalytics.userId} is null)::int`,
+        anonymousVisitors: sql<number>`count(distinct ${visitorAnalytics.visitorId}) filter (where ${visitorAnalytics.userId} is null and not exists (select 1 from visitor_analytics va2 where va2.visitor_id = ${visitorAnalytics.visitorId} and va2.user_id is not null))::int`,
         registeredVisitors: sql<number>`count(distinct ${visitorAnalytics.visitorId}) filter (where ${visitorAnalytics.userId} is not null)::int`,
         registeredPageViews: sql<number>`count(*) filter (where ${visitorAnalytics.userId} is not null)::int`,
       })
