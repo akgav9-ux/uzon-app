@@ -44,6 +44,9 @@ export async function GET(req: Request) {
             where ${profiles.status} <> 'deleted'
           )::int
         `,
+        registrationsAllTime: sql<number>`
+          count(*) filter (where ${profiles.status} <> 'deleted')::int
+        `,
         registrationsToday: sql<number>`
           count(*) filter (
             where ${profiles.createdAt} >= ${dayAgo}
