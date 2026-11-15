@@ -47,7 +47,7 @@ type AnalyticsData = {
   registrationsByDay: { day: string; count: number }[];
   events: { type: string; count: number; watchMs: number }[];
   visitors: {
-    totals: { pageViews: number; uniqueVisitors: number; sessions: number; anonymousPageViews: number; registeredPageViews: number };
+    totals: { pageViews: number; uniqueVisitors: number; sessions: number; anonymousPageViews: number; anonymousVisitors: number; registeredVisitors: number; registeredPageViews: number };
     bySource: { source: string; pageViews: number; visitors: number }[];
     byCountry: { country: string | null; visitors: number }[];
     byDevice: { device: string | null; visitors: number }[];
@@ -719,12 +719,14 @@ export default function AdminAnalyticsPage() {
             subtitle={`Учитываются посетители, разрешившие анонимную аналитику · ${periodLabel}`}
             color={COLORS.cyan}
           />
-          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
             {[
               { label: "Уникальные посетители", value: data.visitors.totals.uniqueVisitors },
               { label: "Просмотры страниц", value: data.visitors.totals.pageViews },
               { label: "Сеансы", value: data.visitors.totals.sessions },
               { label: "Анонимные просмотры", value: data.visitors.totals.anonymousPageViews },
+              { label: "Анонимные посетители", value: data.visitors.totals.anonymousVisitors },
+              { label: "Зарегистрированные", value: data.visitors.totals.registeredVisitors },
             ].map((item) => (
               <div key={item.label} className="rounded-xl border border-[#1b3152] bg-[#0a1930] p-3">
                 <p className="text-xs text-[#91a8c8]">{item.label}</p>
