@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 const CONSENT_KEY = "uzon.analytics-consent";
 const VISITOR_KEY = "uzon.analytics-visitor";
 const SESSION_KEY = "uzon.analytics-session";
+const ACQUISITION_KEY = "uzon.analytics-acquisition";
 
 function browserInfo() {
   const ua = navigator.userAgent;
@@ -39,13 +40,29 @@ export function AnalyticsTracker() {
 
     const visitorId = getOrCreate(VISITOR_KEY);
     const sessionId = getOrCreate(SESSION_KEY);
-    const params = new URLSearchParams(window.location.search);
-    const referrer = document.referrer;
-    let referrerHost: string | null = null;
-    try {
-      referrerHost = referrer ? new URL(referrer).hostname : null;
-    } catch {
-      referrerHost = null;
+    let acquisition: { referrerHost: string | null; utmSource: string | null; utmMedium: string | null; utmCampaign: string | null };
+    const savedAcquisition = localStorage.getItem(ACQUISITION_KEY);
+    if (savedAcquisition) {
+      try {
+        acquisition = JSON.parse(savedAcquisition) as typeof acquisition;
+      } catch {
+        acquisition = { referrerHost: null, utmSource: null, utmMedium: null, utmCampaign: null };
+      }
+    } else {
+      const params = new URLSearchParams(window.location.search);
+      let referrerHost: string | null = null;
+      try {
+        referrerHost = document.referrer ? new URL(document.referrer).hostname : null;
+      } catch {
+        referrerHost = null;
+      }
+      acquisition = {
+        referrerHost,
+        utmSource: params.get("utm_source"),
+        utmMedium: params.get("utm_medium"),
+        utmCampaign: params.get("utm_campaign"),
+      };
+      localStorage.setItem(ACQUISITION_KEY, JSON.stringify(acquisition));
     }
     const { browser, os, deviceType } = browserInfo();
 
