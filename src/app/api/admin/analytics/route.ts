@@ -5,6 +5,7 @@ import {
   analyticsEvents,
   conversations,
   profiles,
+  visitorAnalytics,
 } from "@/db/schema";
 import { requireStaff } from "@/lib/auth";
 import { ok, toResponse } from "@/lib/http";
@@ -17,14 +18,14 @@ export async function GET(req: Request) {
     await requireStaff(req);
 
     const url = new URL(req.url);
-    const requestedDays = Number(url.searchParams.get("days") ?? "7");
-    const days = [7, 30, 90].includes(requestedDays)
-      ? requestedDays
-      : 7;
+    const requestedPeriod = url.searchParams.get("days") ?? "7";
+    const days = requestedPeriod === "all" ? 0 : Number(requestedPeriod);
+    const validPeriod = days === 0 || [7, 30, 90].includes(days);
+    const periodDays = validPeriod ? days : 7;
 
     const now = new Date();
     const since = new Date(
-      now.getTime() - days * 24 * 60 * 60 * 1000,
+      periodDays === 0 ? 0 : now.getTime() - periodDays * 24 * 60 * 60 * 1000,
     );
     const dayAgo = new Date(
       now.getTime() - 24 * 60 * 60 * 1000,
@@ -42,6 +43,9 @@ export async function GET(req: Request) {
           count(*) filter (
             where ${profiles.status} <> 'deleted'
           )::int
+        `,
+        registrationsAllTime: sql<number>`
+          count(*) filter (where ${profiles.status} <> 'deleted')::int
         `,
         registrationsToday: sql<number>`
           count(*) filter (
@@ -114,6 +118,82 @@ export async function GET(req: Request) {
       .where(gte(analyticsEvents.createdAt, since))
       .groupBy(analyticsEvents.type);
 
+    const [visitorTotals] = await db
+      .select({
+        pageViews: sql<number>`count(*)::int`,
+        uniqueVisitors: sql<number>`count(distinct ${visitorAnalytics.visitorId})::int`,
+        sessions: sql<number>`count(distinct ${visitorAnalytics.sessionId})::int`,
+        anonymousPageViews: sql<number>`count(*) filter (where ${visitorAnalytics.userId} is null)::int`,
+        anonymousVisitors: sql<number>`count(distinct ${visitorAnalytics.visitorId}) filter (where ${visitorAnalytics.userId} is null and not exists (select 1 from visitor_analytics va2 where va2.visitor_id = ${visitorAnalytics.visitorId} and va2.user_id is not null))::int`,
+        registeredVisitors: sql<number>`count(distinct ${visitorAnalytics.visitorId}) filter (where ${visitorAnalytics.userId} is not null)::int`,
+        registeredPageViews: sql<number>`count(*) filter (where ${visitorAnalytics.userId} is not null)::int`,
+      })
+      .from(visitorAnalytics)
+      .where(gte(visitorAnalytics.createdAt, since));
+
+    const sourceRows = await db
+      .select({
+        source: visitorAnalytics.source,
+        pageViews: sql<number>`count(*)::int`,
+        visitors: sql<number>`count(distinct ${visitorAnalytics.visitorId})::int`,
+      })
+      .from(visitorAnalytics)
+      .where(gte(visitorAnalytics.createdAt, since))
+      .groupBy(visitorAnalytics.source)
+      .orderBy(sql`count(*) desc`);
+
+    const countryRows = await db
+      .select({
+        country: visitorAnalytics.countryCode,
+        visitors: sql<number>`count(distinct ${visitorAnalytics.visitorId})::int`,
+      })
+      .from(visitorAnalytics)
+      .where(gte(visitorAnalytics.createdAt, since))
+      .groupBy(visitorAnalytics.countryCode)
+      .orderBy(sql`count(distinct ${visitorAnalytics.visitorId}) desc`)
+      .limit(20);
+
+    const deviceRows = await db
+      .select({
+        device: visitorAnalytics.deviceType,
+        visitors: sql<number>`count(distinct ${visitorAnalytics.visitorId})::int`,
+      })
+      .from(visitorAnalytics)
+      .where(gte(visitorAnalytics.createdAt, since))
+      .groupBy(visitorAnalytics.deviceType)
+      .orderBy(sql`count(distinct ${visitorAnalytics.visitorId}) desc`);
+
+    const browserRows = await db
+      .select({
+        browser: visitorAnalytics.browser,
+        visitors: sql<number>`count(distinct ${visitorAnalytics.visitorId})::int`,
+      })
+      .from(visitorAnalytics)
+      .where(gte(visitorAnalytics.createdAt, since))
+      .groupBy(visitorAnalytics.browser)
+      .orderBy(sql`count(distinct ${visitorAnalytics.visitorId}) desc`);
+
+    const osRows = await db
+      .select({
+        os: visitorAnalytics.os,
+        visitors: sql<number>`count(distinct ${visitorAnalytics.visitorId})::int`,
+      })
+      .from(visitorAnalytics)
+      .where(gte(visitorAnalytics.createdAt, since))
+      .groupBy(visitorAnalytics.os)
+      .orderBy(sql`count(distinct ${visitorAnalytics.visitorId}) desc`);
+
+    const visitorDailyRows = await db
+      .select({
+        day: sql<string>`to_char(date_trunc('day', ${visitorAnalytics.createdAt}), 'YYYY-MM-DD')`,
+        pageViews: sql<number>`count(*)::int`,
+        visitors: sql<number>`count(distinct ${visitorAnalytics.visitorId})::int`,
+      })
+      .from(visitorAnalytics)
+      .where(gte(visitorAnalytics.createdAt, since))
+      .groupBy(sql`date_trunc('day', ${visitorAnalytics.createdAt})`)
+      .orderBy(sql`date_trunc('day', ${visitorAnalytics.createdAt})`);
+
     const [content] = await db
       .select({
         channels: sql<number>`
@@ -126,11 +206,20 @@ export async function GET(req: Request) {
       .from(conversations);
 
     return ok({
-      periodDays: days,
+      periodDays: periodDays === 0 ? "all" : periodDays,
       generatedAt: now.toISOString(),
       totals: totals ?? null,
       registrationsByDay: registrationRows,
       events: eventRows,
+      visitors: {
+        totals: visitorTotals ?? { pageViews: 0, uniqueVisitors: 0, sessions: 0, anonymousPageViews: 0, anonymousVisitors: 0, registeredVisitors: 0, registeredPageViews: 0 },
+        bySource: sourceRows,
+        byCountry: countryRows,
+        byDevice: deviceRows,
+        byBrowser: browserRows,
+        byOs: osRows,
+        byDay: visitorDailyRows,
+      },
       content: content ?? { channels: 0, groups: 0 },
       notes: {
         activeUsers:
@@ -139,6 +228,8 @@ export async function GET(req: Request) {
           "Counts only events already recorded in analytics_events.",
         registrations:
           "Historical registrations are available from profiles.createdAt.",
+        visitors:
+          "Visitor analytics starts after explicit analytics consent; older anonymous visits cannot be reconstructed. IP addresses are not stored.",
       },
     });
   } catch (error) {

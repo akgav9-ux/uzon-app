@@ -66,31 +66,11 @@ export async function GET(req: Request) {
     // 4. Создаём сессию
     const token = await createSession(user.id, req);
 
-    // 5. Возвращаем HTML-страницу, которая установит куки и перекинет на /home
-    // (обычный redirect иногда не успевает установить куки в браузере)
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>Вход...</title>
-          <meta http-equiv="refresh" content="0; url=${process.env.NEXT_PUBLIC_APP_URL}/home?auth=success" />
-        </head>
-        <body>
-          <p>Входим... <a href="${process.env.NEXT_PUBLIC_APP_URL}/home?auth=success">Нажмите, если не перенаправило</a></p>
-          <script>window.location.href = "${process.env.NEXT_PUBLIC_APP_URL}/home?auth=success";</script>
-        </body>
-      </html>
-    `;
-
-    const res = new NextResponse(html, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Set-Cookie": cookieHeader(token, 30 * 24 * 60 * 60),
-      },
-    });
-
+    // Return the OAuth result with an HTTP redirect and the session cookie.
+    // Do not render an HTML/JavaScript redirect page for the authorization response.
+    const destination = new URL("/home?auth=success", process.env.NEXT_PUBLIC_APP_URL);
+    const res = NextResponse.redirect(destination, 303);
+    res.headers.set("Set-Cookie", cookieHeader(token, 30 * 24 * 60 * 60));
     return res;
 
   } catch (error) {

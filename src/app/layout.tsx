@@ -1,6 +1,8 @@
 
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { Suspense } from "react";
+import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import "./globals.css";
 import { AppProviders } from "@/components/providers";
 import { PwaRegister } from "@/components/PwaRegister";
@@ -44,6 +46,9 @@ export default function RootLayout({
       <body className="min-h-dvh bg-canvas text-ink antialiased">
         <AppProviders>{children}</AppProviders>
         <PwaRegister />
+        <Suspense fallback={null}>
+          <AnalyticsTracker />
+        </Suspense>
       </body>
     </html>
   );

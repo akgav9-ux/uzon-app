@@ -612,6 +612,33 @@ export const analyticsEvents = pgTable(
   ],
 );
 
+export const visitorAnalytics = pgTable(
+  "visitor_analytics",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    visitorId: text("visitor_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    userId: uuid("user_id").references(() => profiles.id, { onDelete: "set null" }),
+    path: text("path").notNull(),
+    source: text("source").notNull().default("direct"),
+    referrerHost: text("referrer_host"),
+    utmSource: text("utm_source"),
+    utmMedium: text("utm_medium"),
+    utmCampaign: text("utm_campaign"),
+    countryCode: text("country_code"),
+    deviceType: text("device_type"),
+    browser: text("browser"),
+    os: text("os"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("visitor_analytics_created_idx").on(t.createdAt),
+    index("visitor_analytics_visitor_created_idx").on(t.visitorId, t.createdAt),
+    index("visitor_analytics_source_created_idx").on(t.source, t.createdAt),
+    index("visitor_analytics_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
 export const notifications = pgTable(
   "notifications",
   {

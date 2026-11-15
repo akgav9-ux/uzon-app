@@ -24,6 +24,7 @@ import {
   Video,
   Zap,
   ChevronDown,
+  Compass,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useApp } from "@/components/providers";
@@ -31,10 +32,11 @@ import { ErrorState, Skeleton } from "@/components/ui";
 import { get } from "@/lib/client/api";
 
 type AnalyticsData = {
-  periodDays: number;
+  periodDays: number | "all";
   generatedAt: string;
   totals: {
     users: number;
+    registrationsAllTime: number;
     registrationsToday: number;
     registrations7d: number;
     registrations30d: number;
@@ -44,6 +46,15 @@ type AnalyticsData = {
   } | null;
   registrationsByDay: { day: string; count: number }[];
   events: { type: string; count: number; watchMs: number }[];
+  visitors: {
+    totals: { pageViews: number; uniqueVisitors: number; sessions: number; anonymousPageViews: number; anonymousVisitors: number; registeredVisitors: number; registeredPageViews: number };
+    bySource: { source: string; pageViews: number; visitors: number }[];
+    byCountry: { country: string | null; visitors: number }[];
+    byDevice: { device: string | null; visitors: number }[];
+    byBrowser: { browser: string | null; visitors: number }[];
+    byOs: { os: string | null; visitors: number }[];
+    byDay: { day: string; pageViews: number; visitors: number }[];
+  };
   content: { channels: number; groups: number };
   notes: Record<string, string>;
 };
@@ -234,7 +245,7 @@ function SectionTitle({
 }
 
 export default function AdminAnalyticsPage() {
-  const [days, setDays] = useState<7 | 30 | 90>(7);
+  const [days, setDays] = useState<7 | 30 | 90 | "all">(7);
   const [chartMode, setChartMode] = useState<"line" | "bars">("line");
 
   const query = useQuery({
@@ -276,11 +287,14 @@ export default function AdminAnalyticsPage() {
     data.events.find((item) => item.type === "view")?.watchMs ?? 0;
 
   const registrationTotal =
-    days === 7
-      ? totals?.registrations7d ?? 0
-      : days === 30
-        ? totals?.registrations30d ?? 0
-        : registrations.reduce((sum, item) => sum + item.count, 0);
+    days === "all"
+      ? totals?.registrationsAllTime ?? 0
+      : days === 7
+        ? totals?.registrations7d ?? 0
+        : days === 30
+          ? totals?.registrations30d ?? 0
+          : registrations.reduce((sum, item) => sum + item.count, 0);
+  const periodLabel = days === "all" ? "за всё время" : `за ${days} дней`;
 
   const formatDay = (day: string) => {
     const [, month, date] = day.split("-");
@@ -371,7 +385,7 @@ export default function AdminAnalyticsPage() {
           Период статистики
         </div>
         <div className="inline-flex rounded-xl border border-[#1c3152] bg-[#09162a] p-1">
-          {([7, 30, 90] as const).map((value) => (
+          {([7, 30, 90, "all"] as const).map((value) => (
             <button
               key={value}
               type="button"
@@ -382,7 +396,7 @@ export default function AdminAnalyticsPage() {
                   : "text-[#91a8ca] hover:bg-[#132541] hover:text-white"
               }`}
             >
-              {value} дней
+              {value === "all" ? "Всё время" : `${value} дней`}
             </button>
           ))}
         </div>
@@ -429,7 +443,7 @@ export default function AdminAnalyticsPage() {
           hint="За последние 24 часа"
         />
         <MetricCard
-          title={`Регистрации за ${days} дней`}
+          title={days === "all" ? "Регистрации за всё время" : `Регистрации за ${days} дней` }
           value={registrationTotal}
           icon={ChartNoAxesCombined}
           color={COLORS.green}
@@ -466,7 +480,7 @@ export default function AdminAnalyticsPage() {
             <SectionTitle
               icon={ChartNoAxesCombined}
               title="Новые регистрации"
-              subtitle={`По дням за выбранный период · ${days} дней`}
+              subtitle={`По дням ${periodLabel}`}
             />
             <div className="flex rounded-lg border border-[#1c3152] bg-[#09162a] p-1">
               <button
@@ -697,6 +711,116 @@ export default function AdminAnalyticsPage() {
         </div>
       </div>
 
+      <section className="space-y-4">
+        <Panel className="p-4 sm:p-5">
+          <SectionTitle
+            icon={Eye}
+            title="Посещения сайта"
+            subtitle={`Учитываются посетители, разрешившие анонимную аналитику · ${periodLabel}`}
+            color={COLORS.cyan}
+          />
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+            {[
+              { label: "Уникальные посетители", value: data.visitors.totals.uniqueVisitors },
+              { label: "Просмотры страниц", value: data.visitors.totals.pageViews },
+              { label: "Сеансы", value: data.visitors.totals.sessions },
+              { label: "Анонимные просмотры", value: data.visitors.totals.anonymousPageViews },
+              { label: "Анонимные посетители", value: data.visitors.totals.anonymousVisitors },
+              { label: "Зарегистрированные", value: data.visitors.totals.registeredVisitors },
+            ].map((item) => (
+              <div key={item.label} className="rounded-xl border border-[#1b3152] bg-[#0a1930] p-3">
+                <p className="text-xs text-[#91a8c8]">{item.label}</p>
+                <p className="mt-2 text-2xl font-semibold">{item.value.toLocaleString()}</p>
+              </div>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel className="p-4 sm:p-5">
+          <SectionTitle icon={Activity} title="Динамика посещений" subtitle="Посетители по дням · последние 30 дней" color={COLORS.cyan} />
+          {data.visitors.byDay.length ? (
+            <div className="mt-5 flex h-36 items-end gap-1 overflow-x-auto border-b border-[#1b2d49] px-1">
+              {data.visitors.byDay.slice(-30).map((item) => {
+                const max = Math.max(1, ...data.visitors.byDay.slice(-30).map((row) => row.visitors));
+                return (
+                  <div key={item.day} title={`${item.day}: ${item.visitors} посетителей · ${item.pageViews} просмотров страниц`} className="flex h-full min-w-3 flex-1 flex-col items-center justify-end gap-1">
+                    <div className="w-full max-w-8 rounded-t bg-gradient-to-t from-cyan-700 to-cyan-400" style={{ height: `${Math.max(2, item.visitors / max * 90)}%` }} />
+                    <span className="text-[8px] text-[#8098bb]">{formatDay(item.day)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : <p className="mt-4 text-sm text-[#8298b8]">Данных пока нет.</p>}
+        </Panel>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel className="p-4 sm:p-5">
+            <SectionTitle icon={Compass} title="Источники переходов" subtitle="Уникальные посетители и просмотры" color={COLORS.purple} />
+            <div className="mt-4 space-y-3">
+              {data.visitors.bySource.length ? data.visitors.bySource.map((item) => (
+                <div key={item.source} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-[#a9bad3]">{({
+                    direct: "Прямые переходы", instagram: "Instagram", telegram: "Telegram",
+                    whatsapp: "WhatsApp", search: "Поисковики", referral: "Другие сайты",
+                    campaign: "Рекламные кампании", internal: "Внутренние переходы",
+                  } as Record<string, string>)[item.source] ?? item.source}</span>
+                  <span className="text-right font-semibold">{item.visitors} <span className="text-xs font-normal text-[#7188a8]">/ {item.pageViews} стр.</span></span>
+                </div>
+              )) : <p className="text-sm text-[#8298b8]">Данных пока нет.</p>}
+            </div>
+          </Panel>
+
+          <Panel className="p-4 sm:p-5">
+            <SectionTitle icon={UsersRound} title="География посетителей" subtitle="По стране подключения" color={COLORS.green} />
+            <div className="mt-4 space-y-3">
+              {data.visitors.byCountry.length ? data.visitors.byCountry.map((item) => (
+                <div key={item.country ?? "unknown"} className="flex items-center justify-between text-sm">
+                  <span className="text-[#a9bad3]">{item.country ?? "Не определена"}</span>
+                  <span className="font-semibold">{item.visitors}</span>
+                </div>
+              )) : <p className="text-sm text-[#8298b8]">Данных пока нет.</p>}
+            </div>
+          </Panel>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel className="p-4 sm:p-5">
+            <SectionTitle icon={Search} title="Браузеры" subtitle="По уникальным посетителям" color={COLORS.blue} />
+            <div className="mt-4 space-y-3">
+              {data.visitors.byBrowser.length ? data.visitors.byBrowser.map((item) => (
+                <div key={item.browser ?? "unknown"} className="flex items-center justify-between text-sm">
+                  <span className="text-[#a9bad3]">{item.browser ?? "Неизвестно"}</span>
+                  <span className="font-semibold">{item.visitors}</span>
+                </div>
+              )) : <p className="text-sm text-[#8298b8]">Данных пока нет.</p>}
+            </div>
+          </Panel>
+          <Panel className="p-4 sm:p-5">
+            <SectionTitle icon={Settings} title="Операционные системы" subtitle="По уникальным посетителям" color={COLORS.orange} />
+            <div className="mt-4 space-y-3">
+              {data.visitors.byOs.length ? data.visitors.byOs.map((item) => (
+                <div key={item.os ?? "unknown"} className="flex items-center justify-between text-sm">
+                  <span className="text-[#a9bad3]">{item.os ?? "Неизвестно"}</span>
+                  <span className="font-semibold">{item.visitors}</span>
+                </div>
+              )) : <p className="text-sm text-[#8298b8]">Данных пока нет.</p>}
+            </div>
+          </Panel>
+        </div>
+
+        <Panel className="p-4 sm:p-5">
+          <SectionTitle icon={Settings} title="Устройства посетителей" subtitle="Уникальные браузеры" color={COLORS.orange} />
+          <div className="mt-4 flex flex-wrap gap-3">
+            {data.visitors.byDevice.length ? data.visitors.byDevice.map((item) => (
+              <div key={item.device ?? "unknown"} className="min-w-28 rounded-xl border border-[#1b3152] bg-[#0a1930] px-4 py-3">
+                <p className="text-xs text-[#91a8c8]">{item.device ?? "Неизвестно"}</p>
+                <p className="mt-1 text-xl font-semibold">{item.visitors}</p>
+              </div>
+            )) : <p className="text-sm text-[#8298b8]">Данных пока нет.</p>}
+          </div>
+        </Panel>
+      </section>
+
       <section className="grid gap-4 md:grid-cols-3">
         <Panel className="p-4">
           <SectionTitle
@@ -762,9 +886,9 @@ export default function AdminAnalyticsPage() {
         <div className="flex items-start gap-2">
           <Info size={15} className="mt-0.5 shrink-0" />
           <p className="max-w-3xl leading-5">
-            Активность определяется по lastSeenAt. Посещения страниц и
-            анонимные посетители отдельно пока не учитываются. Просмотры
-            и лайки основаны на уже зарегистрированных событиях.
+            Активность определяется по lastSeenAt. Посещения и источники переходов
+            учитываются отдельно только после согласия посетителя на аналитику.
+            Исторические анонимные посещения до включения аналитики недоступны.
           </p>
         </div>
         <p>
