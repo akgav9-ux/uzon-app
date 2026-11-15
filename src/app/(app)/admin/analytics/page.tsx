@@ -438,7 +438,7 @@ export default function AdminAnalyticsPage() {
           hint="За последние 24 часа"
         />
         <MetricCard
-          title={`Регистрации за ${days} дней`}
+          title={days === "all" ? "Регистрации за всё время" : `Регистрации за ${days} дней` }
           value={registrationTotal}
           icon={ChartNoAxesCombined}
           color={COLORS.green}
@@ -719,7 +719,7 @@ export default function AdminAnalyticsPage() {
               { label: "Уникальные посетители", value: data.visitors.totals.uniqueVisitors },
               { label: "Просмотры страниц", value: data.visitors.totals.pageViews },
               { label: "Сеансы", value: data.visitors.totals.sessions },
-              { label: "Без регистрации", value: data.visitors.totals.anonymousPageViews },
+              { label: "Анонимные просмотры", value: data.visitors.totals.anonymousPageViews },
             ].map((item) => (
               <div key={item.label} className="rounded-xl border border-[#1b3152] bg-[#0a1930] p-3">
                 <p className="text-xs text-[#91a8c8]">{item.label}</p>
