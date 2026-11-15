@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const CONSENT_KEY = "uzon.analytics-consent";
 const VISITOR_KEY = "uzon.analytics-visitor";
@@ -15,11 +15,11 @@ function browserInfo() {
   return { browser, os, deviceType };
 }
 
-function getOrCreate(key: string) {
-  let value = localStorage.getItem(key);
+function getOrCreate(key: string, storage: Storage = localStorage) {
+  let value = storage.getItem(key);
   if (!value) {
     value = crypto.randomUUID();
-    localStorage.setItem(key, value);
+    storage.setItem(key, value);
   }
   return value;
 }
@@ -27,6 +27,7 @@ function getOrCreate(key: string) {
 export function AnalyticsTracker() {
   const pathname = usePathname();
   const [consent, setConsent] = useState<"unknown" | "accepted" | "rejected">("unknown");
+  const lastTrackedPath = useRef<string | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem(CONSENT_KEY);
