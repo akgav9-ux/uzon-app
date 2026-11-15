@@ -24,6 +24,7 @@ import {
   Video,
   Zap,
   ChevronDown,
+  Compass,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useApp } from "@/components/providers";
