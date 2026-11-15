@@ -51,6 +51,8 @@ type AnalyticsData = {
     bySource: { source: string; pageViews: number; visitors: number }[];
     byCountry: { country: string | null; visitors: number }[];
     byDevice: { device: string | null; visitors: number }[];
+    byBrowser: { browser: string | null; visitors: number }[];
+    byOs: { os: string | null; visitors: number }[];
     byDay: { day: string; pageViews: number; visitors: number }[];
   };
   content: { channels: number; groups: number };
@@ -752,6 +754,31 @@ export default function AdminAnalyticsPage() {
               {data.visitors.byCountry.length ? data.visitors.byCountry.map((item) => (
                 <div key={item.country ?? "unknown"} className="flex items-center justify-between text-sm">
                   <span className="text-[#a9bad3]">{item.country ?? "Не определена"}</span>
+                  <span className="font-semibold">{item.visitors}</span>
+                </div>
+              )) : <p className="text-sm text-[#8298b8]">Данных пока нет.</p>}
+            </div>
+          </Panel>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel className="p-4 sm:p-5">
+            <SectionTitle icon={Search} title="Браузеры" subtitle="По уникальным посетителям" color={COLORS.blue} />
+            <div className="mt-4 space-y-3">
+              {data.visitors.byBrowser.length ? data.visitors.byBrowser.map((item) => (
+                <div key={item.browser ?? "unknown"} className="flex items-center justify-between text-sm">
+                  <span className="text-[#a9bad3]">{item.browser ?? "Неизвестно"}</span>
+                  <span className="font-semibold">{item.visitors}</span>
+                </div>
+              )) : <p className="text-sm text-[#8298b8]">Данных пока нет.</p>}
+            </div>
+          </Panel>
+          <Panel className="p-4 sm:p-5">
+            <SectionTitle icon={Settings} title="Операционные системы" subtitle="По уникальным посетителям" color={COLORS.orange} />
+            <div className="mt-4 space-y-3">
+              {data.visitors.byOs.length ? data.visitors.byOs.map((item) => (
+                <div key={item.os ?? "unknown"} className="flex items-center justify-between text-sm">
+                  <span className="text-[#a9bad3]">{item.os ?? "Неизвестно"}</span>
                   <span className="font-semibold">{item.visitors}</span>
                 </div>
               )) : <p className="text-sm text-[#8298b8]">Данных пока нет.</p>}
