@@ -26,7 +26,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   longVideoMaxSeconds: 4 * 3600,
   storyMaxSeconds: 60,
   imageMaxMb: 12,
-  videoMaxMb: Number(process.env.MEDIA_MAX_VIDEO_MB ?? 256),
+  videoMaxMb: Math.max(4096, Number(process.env.MEDIA_MAX_VIDEO_MB ?? 4096)),
   audioMaxMb: 25,
   fileMaxMb: 50,
   postMaxLength: 4000,
@@ -62,6 +62,10 @@ export async function getServerConfig(): Promise<ServerConfig> {
   } catch {
     // При недоступности таблицы используются значения по умолчанию.
   }
+
+  // Длинные видео должны принимать файлы до 4 GiB; старое значение 256 MiB
+  // из переменной окружения или таблицы настроек больше не должно блокировать загрузку.
+  value = { ...value, videoMaxMb: Math.max(4096, value.videoMaxMb) };
 
   const demoMode =
     process.env.NODE_ENV !== "production" &&
