@@ -35,12 +35,12 @@ let stopping = false;
 process.on("SIGINT", () => { stopping = true; });
 process.on("SIGTERM", () => { stopping = true; });
 
-function run(command, args) {
+function run(command, args, onStdout) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stdout.on("data", (chunk) => { stdout += chunk; onStdout?.(chunk.toString()); });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.on("error", reject);
     child.on("close", (code) => code === 0 ? resolve(stdout.trim()) : reject(new Error(stderr.slice(-5000) || `${command} exited ${code}`)));
@@ -213,8 +213,10 @@ async function transcode(job) {
       const folder = path.join(output, name);
       await mkdir(folder, { recursive: true });
       const bitrate = height <= 360 ? ["800k", "900k"] : height <= 480 ? ["1400k", "1600k"] : height <= 720 ? ["2800k", "3000k"] : ["5000k", "5200k"];
+      let progressBuffer = "";
+      let lastProgressWrite = 0;
       await run("ffmpeg", [
-        "-y", "-i", source, "-map", "0:v:0", "-map", "0:a:0?",
+        "-y", "-progress", "pipe:1", "-nostats", "-i", source, "-map", "0:v:0", "-map", "0:a:0?",
         "-vf", `scale=-2:${height}:flags=lanczos`,
         "-c:v", "libx264", "-preset", "veryfast", "-profile:v", "main",
         "-b:v", bitrate[0], "-maxrate", bitrate[0], "-bufsize", bitrate[1],
@@ -222,7 +224,23 @@ async function transcode(job) {
         "-hls_time", "6", "-hls_playlist_type", "vod", "-hls_flags", "independent_segments",
         "-hls_segment_filename", path.join(folder, "segment_%05d.ts"),
         path.join(folder, "index.m3u8"),
-      ]);
+      ], (chunk) => {
+        progressBuffer += chunk;
+        const lines = progressBuffer.split(/\r?\n/);
+        progressBuffer = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.startsWith("out_time_ms=")) continue;
+          const elapsedSeconds = Number(line.slice("out_time_ms=".length)) / 1000000;
+          if (!Number.isFinite(elapsedSeconds) || durationSeconds <= 0) continue;
+          const now = Date.now();
+          if (now - lastProgressWrite < 5000) continue;
+          lastProgressWrite = now;
+          const withinVariant = Math.min(1, elapsedSeconds / durationSeconds);
+          const overall = Math.min(90, 10 + Math.round(((index + withinVariant) / heights.length) * 80));
+          void pool.query("UPDATE video_jobs SET stage = 'transcode', progress = $2, updated_at = now() WHERE id = $1 AND status = 'processing'", [job.job_id, overall])
+            .catch((error) => console.error("[video-worker] progress update failed", error));
+        }
+      });
       await uploadTree(folder, `videos/${job.video_id}/hls/${name}`);
       await rm(folder, { recursive: true, force: true });
       const width = Math.max(2, Math.round((sourceWidth * height / sourceHeight) / 2) * 2);
