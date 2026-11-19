@@ -265,6 +265,7 @@ export function VideoPlayer({
   const { t, fmt, toast, user } = useApp();
   const queryClient = useQueryClient();
   const ref = useRef<HTMLVideoElement>(null);
+  const playerContainerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<HlsPlayerInstance | null>(null);
   const [quality, setQuality] = useState("auto");
   const qualityRef = useRef(quality);
@@ -500,13 +501,16 @@ export function VideoPlayer({
       onMouseMove={handleInteraction}
       onTouchStart={handleInteraction}
     >
-      <div className="relative aspect-video max-h-[70vh] w-full group">
+      <div ref={playerContainerRef} className="relative aspect-video max-h-[70vh] w-full group" onContextMenu={(event) => event.preventDefault()}>
         {video.url ? (
           <video
             ref={ref}
             poster={video.posterUrl ?? undefined}
             className="h-full w-full bg-black object-contain"
             playsInline
+            controlsList="nodownload noremoteplayback"
+            disablePictureInPicture
+            onContextMenu={(event) => event.preventDefault()}
             muted={muted}
             onClick={() => {
               const element = ref.current;
@@ -607,7 +611,7 @@ export function VideoPlayer({
                 <MessageCircle className="h-5 w-5" />
               </IconButton>
               <IconButton label={t("video.fullscreen")} onClick={() => {
-                const element = ref.current;
+                const element = playerContainerRef.current;
                 if (!element) return;
                 if (document.fullscreenElement) void document.exitFullscreen();
                 else void element.requestFullscreen?.().catch(() => toast(t("common.error"), "error"));
