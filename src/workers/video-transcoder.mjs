@@ -1,9 +1,9 @@
-import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand, HeadObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { Pool } from "pg";
 import { spawn } from "node:child_process";
-import { createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, mkdtemp, readdir, rm, stat, statfs, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -144,18 +144,16 @@ async function uploadTree(localDir, prefix) {
         ? "video/mp2t"
         : "application/octet-stream";
 
-    const body = await readFile(full);
+    const fileStat = await stat(full);
 
-    console.log(
-      `[video-worker] uploading ${key} (${body.length} bytes)`
-    );
+    console.log(`[video-worker] uploading ${key} (${fileStat.size} bytes)`);
 
     try {
       await s3.send(new PutObjectCommand({
         Bucket: bucket,
         Key: key,
-        Body: body,
-        ContentLength: body.length,
+        Body: createReadStream(full),
+        ContentLength: fileStat.size,
         ContentType: mime,
         CacheControl: entry.name.endsWith(".m3u8")
           ? "public, max-age=60"
@@ -185,22 +183,32 @@ async function transcode(job) {
   const output = path.join(temp, "hls");
   try {
     await mkdir(output, { recursive: true });
+    const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: job.source_key }));
+    const sourceSize = Number(head.ContentLength || 0);
+    if (!sourceSize) throw new Error("Could not determine source video size");
+    const disk = await statfs(temp);
+    const freeBytes = Number(disk.bavail) * Number(disk.bsize);
+    const requiredBytes = sourceSize * 2;
+    if (freeBytes < requiredBytes) {
+      throw new Error(`Insufficient temporary disk space: need at least ${Math.ceil(requiredBytes / 1024 ** 3)} GB free, have ${Math.floor(freeBytes / 1024 ** 3)} GB`);
+    }
     const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: job.source_key }));
     if (!object.Body) throw new Error("S3 returned an empty source object");
     await pipeline(object.Body, createWriteStream(source));
 
     const probe = JSON.parse(await run("ffprobe", [
-      "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
-      "-of", "json", source,
+      "-v", "error", "-show_entries", "format=duration:stream=width,height",
+      "-select_streams", "v:0", "-of", "json", source,
     ]));
     const sourceHeight = Number(probe.streams?.[0]?.height || 0);
     const sourceWidth = Number(probe.streams?.[0]?.width || 0);
-    if (!sourceHeight || !sourceWidth) throw new Error("Could not detect source video dimensions");
+    const durationSeconds = Number(probe.format?.duration || 0);
+    if (!sourceHeight || !sourceWidth || !durationSeconds) throw new Error("Could not detect source video dimensions");
 
     const heights = [360, 480, 720, 1080].filter((height) => height <= sourceHeight);
     if (!heights.length) heights.push(sourceHeight);
     const variants = [];
-    for (const height of heights) {
+    for (const [index, height] of heights.entries()) {
       const name = `${height}p`;
       const folder = path.join(output, name);
       await mkdir(folder, { recursive: true });
@@ -215,8 +223,11 @@ async function transcode(job) {
         "-hls_segment_filename", path.join(folder, "segment_%05d.ts"),
         path.join(folder, "index.m3u8"),
       ]);
+      await uploadTree(folder, `videos/${job.video_id}/hls/${name}`);
+      await rm(folder, { recursive: true, force: true });
       const width = Math.max(2, Math.round((sourceWidth * height / sourceHeight) / 2) * 2);
       variants.push({ height, width, bandwidth: Number.parseInt(bitrate[0], 10) * 1000 + 128000, name });
+      await pool.query("UPDATE video_jobs SET stage = 'transcode', progress = $2, updated_at = now() WHERE id = $1 AND status = 'processing'", [job.job_id, Math.min(90, 10 + Math.round(((index + 1) / heights.length) * 80))]);
     }
 
     const master = [
@@ -228,9 +239,8 @@ async function transcode(job) {
       ]),
       "",
     ].join("\n");
-    await writeFile(path.join(output, "master.m3u8"), master, "utf8");
-
     const prefix = `videos/${job.video_id}/hls`;
+    await writeFile(path.join(output, "master.m3u8"), master, "utf8");
     await uploadTree(output, prefix);
     await pool.query(
       "UPDATE videos SET hls_key = $2, quality_levels = $3::jsonb, status = 'ready', processing_note = NULL, updated_at = now() WHERE id = $1",
