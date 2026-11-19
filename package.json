@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "db:push": "drizzle-kit push --config=drizzle.config.ts",
     "grant-admin": "node src/scripts/grant-admin.mjs",
-    "worker:video": "node src/workers/video-transcoder.mjs"
+    "worker:video": "node --env-file=.env --env-file-if-exists=.env.local src/workers/video-transcoder.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1152.0",

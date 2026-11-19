@@ -19,7 +19,7 @@ The original upload is retained. This first implementation does not delete or ov
 - Node.js 22 LTS
 - FFmpeg with `ffmpeg`, `ffprobe` and the `libx264` encoder
 - Network access to the Supabase PostgreSQL database and Selectel S3
-- Enough free disk space for the largest source file plus temporary renditions
+- At least twice the largest source-file size free on the worker temporary filesystem before a job starts; for a 3.67 GB source, the worker requires at least about 7.34 GB free. More headroom is recommended for long/high-bitrate videos
 
 Install FFmpeg and Node.js 22 using your server provider's supported packages/repositories. In the repository checkout, run `npm ci`.
 
@@ -47,7 +47,7 @@ Run it under systemd or another process supervisor so it restarts after a server
 
 ## Selectel bucket settings
 
-The browser must be able to GET the HLS master playlist, variant playlists and segments from the same public media origin used by existing UZON media URLs. Configure bucket/object read access and CORS to allow GET and HEAD from the UZON web origins. Do not make the bucket writable by anonymous users. The worker uploads objects using its private S3 credentials and sets `public-read` on generated HLS objects, matching the existing media upload behavior. Keep write access private; only generated media objects should be publicly readable.
+The browser must be able to GET the HLS master playlist, variant playlists and segments from the same public media origin used by existing UZON media URLs. Configure bucket/object read access and CORS to allow GET and HEAD from the UZON web origins. Do not make the bucket writable by anonymous users. The worker uploads objects using its private S3 credentials. It does **not** set an object ACL. Confirm the actual bucket policy in Selectel before processing: the browser must have anonymous `GET`/`HEAD` access to the generated HLS keys (or the application must be changed to issue signed URLs). Prefer a bucket policy that grants read-only access to the HLS prefix; never enable anonymous writes. Do not assume that a documentation statement or an ACL setting makes the objects public—verify by requesting a real uploaded `.m3u8` URL without credentials.
 
 ## Database rollout
 
@@ -61,6 +61,8 @@ The video page uses HLS.js in browsers without native HLS and falls back to the 
 
 - This is a first worker implementation, not yet production-validated against the live Selectel bucket, Supabase connection, real source videos, or mobile browsers.
 - Jobs are retried up to three attempts. A worker heartbeat refreshes active jobs; stale jobs older than 15 minutes are requeued or marked failed after the retry limit. There is no exponential backoff yet.
+- The worker checks free temporary disk space before downloading a source. It uploads each rendition as soon as it is encoded, removes that rendition's temporary files, and streams S3 uploads rather than buffering full segments in RAM.
+- FFmpeg progress is written to `video_jobs.progress`; the video detail page polls the job every five seconds while it is queued or processing.
 - The worker does not yet generate thumbnails, subtitles, or 1440p/4K renditions.
 - Original uploads are kept, so HLS renditions require additional storage.
 
