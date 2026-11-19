@@ -40,7 +40,7 @@ function run(command, args, onStdout) {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk; onStdout?.(chunk.toString()); });
+    child.stdout.on("data", (chunk) => { if (onStdout) onStdout(chunk.toString()); else stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.on("error", reject);
     child.on("close", (code) => code === 0 ? resolve(stdout.trim()) : reject(new Error(stderr.slice(-5000) || `${command} exited ${code}`)));
