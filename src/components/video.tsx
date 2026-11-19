@@ -8,6 +8,7 @@ import {
   Expand,
   Heart,
   Maximize2,
+  Minimize2,
   MessageCircle,
   Pause,
   Play,
@@ -265,6 +266,7 @@ export function VideoPlayer({
   const { t, fmt, toast, user } = useApp();
   const queryClient = useQueryClient();
   const ref = useRef<HTMLVideoElement>(null);
+  const playerContainerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<HlsPlayerInstance | null>(null);
   const [quality, setQuality] = useState("auto");
   const qualityRef = useRef(quality);
@@ -281,6 +283,13 @@ export function VideoPlayer({
   const [buffered, setBuffered] = useState(0);
   
   const [showControls, setShowControls] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const updateFullscreen = () => setIsFullscreen(document.fullscreenElement === playerContainerRef.current);
+    document.addEventListener("fullscreenchange", updateFullscreen);
+    return () => document.removeEventListener("fullscreenchange", updateFullscreen);
+  }, []);
 
   const watchedMs = useRef(0);
   const viewSent = useRef(false);
@@ -500,13 +509,16 @@ export function VideoPlayer({
       onMouseMove={handleInteraction}
       onTouchStart={handleInteraction}
     >
-      <div className="relative aspect-video max-h-[70vh] w-full group">
+      <div ref={playerContainerRef} className="relative aspect-video max-h-[70vh] w-full group [&:fullscreen]:fixed [&:fullscreen]:inset-0 [&:fullscreen]:z-[9999] [&:fullscreen]:h-[100dvh] [&:fullscreen]:max-h-none [&:fullscreen]:w-screen [&:fullscreen]:aspect-auto [&:fullscreen]:rounded-none" onContextMenu={(event) => event.preventDefault()}>
         {video.url ? (
           <video
             ref={ref}
             poster={video.posterUrl ?? undefined}
             className="h-full w-full bg-black object-contain"
             playsInline
+            controlsList="nodownload noremoteplayback"
+            disablePictureInPicture
+            onContextMenu={(event) => event.preventDefault()}
             muted={muted}
             onClick={() => {
               const element = ref.current;
@@ -606,13 +618,13 @@ export function VideoPlayer({
               }} className="text-white hover:bg-white/20">
                 <MessageCircle className="h-5 w-5" />
               </IconButton>
-              <IconButton label={t("video.fullscreen")} onClick={() => {
-                const element = ref.current;
+              <IconButton label={isFullscreen ? "Exit fullscreen" : t("video.fullscreen")} onClick={() => {
+                const element = playerContainerRef.current;
                 if (!element) return;
-                if (document.fullscreenElement) void document.exitFullscreen();
+                if (document.fullscreenElement === element) void document.exitFullscreen();
                 else void element.requestFullscreen?.().catch(() => toast(t("common.error"), "error"));
               }} className="text-white hover:bg-white/20">
-                <Maximize2 className="h-5 w-5" />
+                {isFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
               </IconButton>
             </div>
           </div>
