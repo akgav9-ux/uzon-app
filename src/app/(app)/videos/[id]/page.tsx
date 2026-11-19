@@ -15,7 +15,7 @@ import type { VideoPayload } from "@/lib/serialize";
 type Detail = {
   video: VideoPayload;
   related: VideoPayload[];
-  job: { stage: string; status: string; progress: number } | null;
+  job: { stage: string; status: string; progress: number; error?: string | null } | null;
   playlists: { id: string; title: string; kind: string }[];
   playlistIds: string[];
 };
@@ -32,6 +32,10 @@ export default function VideoPage({ params }: { params: Promise<{ id: string }> 
   const detail = useQuery({
     queryKey: qk.video(id),
     queryFn: () => get<Detail>(`/api/videos/${id}`),
+    refetchInterval: (query) => {
+      const status = query.state.data?.job?.status;
+      return status === "queued" || status === "processing" ? 5000 : false;
+    },
   });
 
   const comments = useQuery({
@@ -74,6 +78,24 @@ export default function VideoPage({ params }: { params: Promise<{ id: string }> 
       <main className="min-w-0 space-y-0 sm:space-y-4">
         
         {/* Видео: на мобилке во всю ширину без скруглений, на пк - карточка */}
+        {detail.data.job && (detail.data.job.status === "queued" || detail.data.job.status === "processing") && (
+          <Card className="mb-3 space-y-2 p-3">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="font-medium text-ink">Видео обрабатывается</span>
+              <span className="tabular-nums text-muted">{detail.data.job.progress}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-surface2">
+              <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${Math.max(0, Math.min(100, detail.data.job.progress))}%` }} />
+            </div>
+            <p className="text-xs text-muted">Статус: {detail.data.job.stage === "queued" ? "в очереди" : detail.data.job.stage === "probing" ? "проверка файла" : "создание качества видео"}. Страница обновляется автоматически.</p>
+          </Card>
+        )}
+        {detail.data.job?.status === "failed" && (
+          <Card className="mb-3 space-y-1 p-3">
+            <p className="text-sm font-medium text-ink">Не удалось обработать видео</p>
+            <p className="text-xs text-muted">{detail.data.job.error || "Попробуйте позже или обратитесь в поддержку."}</p>
+          </Card>
+        )}
         <div className="overflow-hidden rounded-none bg-black shadow-sm sm:rounded-2xl">
           <VideoPlayer
             video={video}
