@@ -110,12 +110,6 @@ export function VideoCard({
             </span>
           ) : null}
 
-          {video.status !== "ready" && (
-            <span className="absolute left-1.5 top-1.5">
-              <Badge tone="warning">{t("video.processing")}</Badge>
-            </span>
-          )}
-
           {video.positionMs > 3000 && (
             <span className="absolute inset-x-0 bottom-0 h-1 bg-white/25">
               <span
@@ -644,9 +638,6 @@ export function VideoMeta({ video }: { video: VideoPayload }) {
         <span>•</span>
         <span>{fmt.date(video.createdAt)}</span>
         <Badge tone="brand">{t(`category.${video.category}` as never)}</Badge>
-        {video.status !== "ready" && (
-          <Badge tone="warning">{t("video.processing")}</Badge>
-        )}
       </div>
 
       <div className="flex items-center justify-between gap-3 py-1">
