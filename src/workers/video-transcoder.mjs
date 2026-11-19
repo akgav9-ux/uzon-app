@@ -215,6 +215,7 @@ async function transcode(job) {
       const bitrate = height <= 360 ? ["800k", "900k"] : height <= 480 ? ["1400k", "1600k"] : height <= 720 ? ["2800k", "3000k"] : ["5000k", "5200k"];
       let progressBuffer = "";
       let lastProgressWrite = 0;
+      let progressWrite = Promise.resolve();
       await run("ffmpeg", [
         "-y", "-progress", "pipe:1", "-nostats", "-i", source, "-map", "0:v:0", "-map", "0:a:0?",
         "-vf", `scale=-2:${height}:flags=lanczos`,
@@ -237,10 +238,12 @@ async function transcode(job) {
           lastProgressWrite = now;
           const withinVariant = Math.min(1, elapsedSeconds / durationSeconds);
           const overall = Math.min(90, 10 + Math.round(((index + withinVariant) / heights.length) * 80));
-          void pool.query("UPDATE video_jobs SET stage = 'transcode', progress = $2, updated_at = now() WHERE id = $1 AND status = 'processing'", [job.job_id, overall])
+          progressWrite = progressWrite
+            .then(() => pool.query("UPDATE video_jobs SET stage = 'transcode', progress = $2, updated_at = now() WHERE id = $1 AND status = 'processing'", [job.job_id, overall]))
             .catch((error) => console.error("[video-worker] progress update failed", error));
         }
       });
+      await progressWrite;
       await uploadTree(folder, `videos/${job.video_id}/hls/${name}`);
       await rm(folder, { recursive: true, force: true });
       const width = Math.max(2, Math.round((sourceWidth * height / sourceHeight) / 2) * 2);
